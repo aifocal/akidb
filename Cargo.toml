@@ -4,6 +4,7 @@ members = [
     "crates/akidb-storage",
     "crates/akidb-index",
     "crates/akidb-query",
+    "crates/akidb-benchmarks",
     "services/akidb-api",
     "services/akidb-mcp"
 ]

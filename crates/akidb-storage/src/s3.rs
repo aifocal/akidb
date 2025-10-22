@@ -18,7 +18,10 @@ use akidb_core::{
 };
 
 use crate::backend::{StorageBackend, StorageStatus};
-use crate::segment_format::{ChecksumType, CompressionType, SegmentData, SegmentReader, SegmentWriter};
+use crate::metadata::MetadataBlock;
+use crate::segment_format::{
+    ChecksumType, CompressionType, SegmentData, SegmentReader, SegmentWriter,
+};
 
 /// S3 storage configuration
 #[derive(Debug, Clone)]
@@ -198,6 +201,19 @@ pub struct S3StorageBackend {
 }
 
 impl S3StorageBackend {
+    fn from_object_store(config: S3Config, client: Arc<dyn ObjectStore>) -> Self {
+        let circuit_breaker = Arc::new(CircuitBreaker::new(
+            5,                       // 5 consecutive failures to open
+            Duration::from_secs(30), // 30 seconds recovery timeout
+        ));
+
+        Self {
+            client,
+            config,
+            circuit_breaker,
+        }
+    }
+
     /// Create a new S3 storage backend
     pub fn new(config: S3Config) -> Result<Self> {
         // Build S3 client
@@ -220,16 +236,14 @@ impl S3StorageBackend {
             .build()
             .map_err(|e| Error::Storage(format!("Failed to create S3 client: {}", e)))?;
 
-        let circuit_breaker = Arc::new(CircuitBreaker::new(
-            5,                       // 5 consecutive failures to open
-            Duration::from_secs(30), // 30 seconds recovery timeout
-        ));
+        let client: Arc<dyn ObjectStore> = Arc::new(client);
 
-        Ok(Self {
-            client: Arc::new(client),
-            config,
-            circuit_breaker,
-        })
+        Ok(Self::from_object_store(config, client))
+    }
+
+    #[cfg(test)]
+    fn new_with_object_store(config: S3Config, client: Arc<dyn ObjectStore>) -> Self {
+        Self::from_object_store(config, client)
     }
 
     /// Execute an operation with retry logic
@@ -467,6 +481,7 @@ impl S3StorageBackend {
         &self,
         descriptor: &SegmentDescriptor,
         vectors: Vec<Vec<f32>>,
+        metadata: Option<MetadataBlock>,
     ) -> Result<()> {
         info!(
             "Writing segment {} with {} vectors (SEGv1 format)",
@@ -484,16 +499,16 @@ impl S3StorageBackend {
         }
 
         // Validate collection exists and dimension matches
-        let mut manifest = self
-            .load_manifest(&descriptor.collection)
-            .await
-            .map_err(|e| match e {
-                Error::NotFound(_) => Error::Validation(format!(
-                    "Collection {} does not exist",
-                    descriptor.collection
-                )),
-                other => other,
-            })?;
+        let mut manifest =
+            self.load_manifest(&descriptor.collection)
+                .await
+                .map_err(|e| match e {
+                    Error::NotFound(_) => Error::Validation(format!(
+                        "Collection {} does not exist",
+                        descriptor.collection
+                    )),
+                    other => other,
+                })?;
 
         if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
             return Err(Error::Validation(format!(
@@ -514,8 +529,12 @@ impl S3StorageBackend {
             )));
         }
 
-        // Create segment data
-        let segment_data = SegmentData::new(descriptor.vector_dim as u32, vectors)?;
+        // Create segment data with optional metadata
+        let segment_data = if let Some(metadata_block) = metadata {
+            SegmentData::with_metadata(descriptor.vector_dim as u32, vectors, metadata_block)?
+        } else {
+            SegmentData::new(descriptor.vector_dim as u32, vectors)?
+        };
 
         // Serialize using SEGv1 format with compression
         let writer = SegmentWriter::new(CompressionType::Zstd, ChecksumType::XXH3);
@@ -532,17 +551,18 @@ impl S3StorageBackend {
         self.persist_manifest(&manifest).await?;
 
         info!(
-            "Segment {} with {} vectors written successfully (SEGv1 format)",
+            "Segment {} with {} vectors written successfully (SEGv1 format, metadata: {})",
             descriptor.segment_id,
-            segment_data.vector_count()
+            segment_data.vector_count(),
+            segment_data.metadata.is_some()
         );
 
         Ok(())
     }
 
-    /// Load segment data from S3 using SEGv1 format
-    pub async fn load_segment(&self, collection: &str, segment_id: Uuid) -> Result<SegmentData> {
-        info!("Loading segment {} (SEGv1 format)", segment_id);
+    /// Read segment data (vectors + optional metadata) from S3 using SEGv1 format
+    pub async fn read_segment(&self, collection: &str, segment_id: Uuid) -> Result<SegmentData> {
+        info!("Reading segment {} (SEGv1 format)", segment_id);
 
         let key = self.segment_key(collection, segment_id);
         let bytes = self.get_object_internal(&key).await?;
@@ -550,12 +570,18 @@ impl S3StorageBackend {
         let segment_data = SegmentReader::read(&bytes)?;
 
         info!(
-            "Loaded segment {} with {} vectors",
+            "Loaded segment {} with {} vectors (metadata: {})",
             segment_id,
-            segment_data.vector_count()
+            segment_data.vector_count(),
+            segment_data.metadata.is_some()
         );
 
         Ok(segment_data)
+    }
+
+    /// Backward-compatible alias for `read_segment`
+    pub async fn load_segment(&self, collection: &str, segment_id: Uuid) -> Result<SegmentData> {
+        self.read_segment(collection, segment_id).await
     }
 }
 
@@ -588,8 +614,10 @@ impl StorageBackend for S3StorageBackend {
         // Ensure logical directory structure exists
         let collection_prefix = format!("collections/{}/", descriptor.name);
         let segments_prefix = format!("collections/{}/segments/", descriptor.name);
-        self.put_object_internal(&collection_prefix, Bytes::new()).await?;
-        self.put_object_internal(&segments_prefix, Bytes::new()).await?;
+        self.put_object_internal(&collection_prefix, Bytes::new())
+            .await?;
+        self.put_object_internal(&segments_prefix, Bytes::new())
+            .await?;
 
         // Create initial manifest (MANIFESTv1 format)
         let now = chrono::Utc::now();
@@ -722,7 +750,8 @@ impl StorageBackend for S3StorageBackend {
 
         let data = serde_json::to_vec(&descriptor)
             .map_err(|e| Error::Storage(format!("Failed to serialize sealed segment: {}", e)))?;
-        self.put_object_internal(&segment_key, Bytes::from(data)).await?;
+        self.put_object_internal(&segment_key, Bytes::from(data))
+            .await?;
 
         Self::bump_manifest_revision(&mut manifest);
         self.persist_manifest(&manifest).await?;
@@ -782,6 +811,12 @@ impl StorageBackend for S3StorageBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use akidb_core::collection::{CollectionDescriptor, DistanceMetric, PayloadSchema};
+    use akidb_core::segment::{SegmentDescriptor, SegmentState};
+    use chrono::Utc;
+    use object_store::memory::InMemory;
+    use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn test_circuit_breaker_closed_to_open() {
@@ -849,5 +884,110 @@ mod tests {
         assert_eq!(config.multipart_threshold, 64 * 1024 * 1024);
         assert_eq!(config.part_size, 16 * 1024 * 1024);
         assert_eq!(config.retry_config.max_attempts, 5);
+    }
+
+    fn test_backend() -> S3StorageBackend {
+        let mut config = S3Config::default();
+        config.bucket = "test-bucket".to_string();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        S3StorageBackend::new_with_object_store(config, store)
+    }
+
+    fn test_collection_descriptor(name: &str, dimension: u16) -> CollectionDescriptor {
+        CollectionDescriptor {
+            name: name.to_string(),
+            vector_dim: dimension,
+            distance: DistanceMetric::Cosine,
+            replication: 1,
+            shard_count: 1,
+            payload_schema: PayloadSchema::default(),
+        }
+    }
+
+    fn test_segment_descriptor(
+        collection: &str,
+        segment_id: Uuid,
+        record_count: u32,
+        dimension: u16,
+    ) -> SegmentDescriptor {
+        SegmentDescriptor {
+            segment_id,
+            collection: collection.to_string(),
+            record_count,
+            vector_dim: dimension,
+            lsn_range: 0..=record_count as u64,
+            compression_level: 0,
+            created_at: Utc::now(),
+            state: SegmentState::Active,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_and_read_segment_with_metadata() {
+        let backend = test_backend();
+        let collection = test_collection_descriptor("metadata_collection", 3);
+        backend.create_collection(&collection).await.unwrap();
+
+        let segment_id = Uuid::new_v4();
+        let descriptor =
+            test_segment_descriptor(&collection.name, segment_id, 3, collection.vector_dim);
+
+        let vectors = vec![
+            vec![0.1, 0.2, 0.3],
+            vec![1.1, 1.2, 1.3],
+            vec![2.1, 2.2, 2.3],
+        ];
+
+        let payloads = vec![
+            json!({ "id": "v1", "category": "news", "score": 0.98 }),
+            json!({ "id": "v2", "category": "sports", "score": 0.87 }),
+            json!({ "id": "v3", "category": "finance", "score": 0.92 }),
+        ];
+
+        let metadata = MetadataBlock::from_json(payloads.clone()).unwrap();
+
+        backend
+            .write_segment_with_data(&descriptor, vectors.clone(), Some(metadata.clone()))
+            .await
+            .unwrap();
+
+        let recovered = backend
+            .read_segment(&descriptor.collection, descriptor.segment_id)
+            .await
+            .unwrap();
+
+        assert_eq!(recovered.vectors, vectors);
+        assert!(recovered.metadata.is_some());
+
+        let recovered_metadata = recovered.metadata.unwrap();
+        assert_eq!(recovered_metadata.batch.num_rows(), payloads.len());
+        let recovered_payloads = recovered_metadata.to_json().unwrap();
+        assert_eq!(recovered_payloads, payloads);
+    }
+
+    #[tokio::test]
+    async fn test_read_segment_without_metadata_backward_compatibility() {
+        let backend = test_backend();
+        let collection = test_collection_descriptor("no_metadata_collection", 2);
+        backend.create_collection(&collection).await.unwrap();
+
+        let segment_id = Uuid::new_v4();
+        let descriptor =
+            test_segment_descriptor(&collection.name, segment_id, 2, collection.vector_dim);
+
+        let vectors = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+
+        backend
+            .write_segment_with_data(&descriptor, vectors.clone(), None)
+            .await
+            .unwrap();
+
+        let recovered = backend
+            .read_segment(&descriptor.collection, descriptor.segment_id)
+            .await
+            .unwrap();
+
+        assert_eq!(recovered.vectors, vectors);
+        assert!(recovered.metadata.is_none());
     }
 }

@@ -3,11 +3,7 @@
 //! This module defines the shared state for the API server, including
 //! storage backends, index providers, and query components.
 
-use akidb_core::{
-    collection::CollectionDescriptor,
-    manifest::CollectionManifest,
-    Result,
-};
+use akidb_core::{collection::CollectionDescriptor, manifest::CollectionManifest, Result};
 use akidb_index::{IndexHandle, IndexProvider};
 use akidb_query::{ExecutionEngine, QueryPlanner};
 use akidb_storage::StorageBackend;
@@ -96,7 +92,10 @@ impl AppState {
             debug!("Updated index handle for collection: {}", name);
             Ok(())
         } else {
-            Err(akidb_core::Error::NotFound(format!("Collection '{}' not found", name)))
+            Err(akidb_core::Error::NotFound(format!(
+                "Collection '{}' not found",
+                name
+            )))
         }
     }
 

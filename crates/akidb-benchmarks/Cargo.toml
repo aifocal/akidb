@@ -1,0 +1,31 @@
+[package]
+name = "akidb-benchmarks"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "vector_search"
+harness = false
+
+[[bench]]
+name = "index_build"
+harness = false
+
+[[bench]]
+name = "metadata_ops"
+harness = false
+
+[dependencies]
+akidb-core = { path = "../akidb-core" }
+akidb-storage = { path = "../akidb-storage" }
+akidb-index = { path = "../akidb-index" }
+akidb-query = { path = "../akidb-query" }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+serde_json = "1.0"
+sysinfo = "0.29"
+once_cell = "1.19"
+roaring = "0.10"
+uuid = { workspace = true }
+chrono = { workspace = true }

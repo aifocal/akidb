@@ -230,7 +230,9 @@ async fn test_e2e_segv1_format_roundtrip() {
     // Verify first and last vectors
     for i in 0..dimension {
         assert!((recovered.vectors[0][i] - vectors[0][i]).abs() < 1e-6);
-        assert!((recovered.vectors[vector_count - 1][i] - vectors[vector_count - 1][i]).abs() < 1e-6);
+        assert!(
+            (recovered.vectors[vector_count - 1][i] - vectors[vector_count - 1][i]).abs() < 1e-6
+        );
     }
 
     println!("✅ SEGv1 format roundtrip test passed");
@@ -337,8 +339,10 @@ async fn test_e2e_error_handling() {
 
     // Should fail validation - may return 400 or 422 depending on validation layer
     assert!(
-        response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::UNPROCESSABLE_ENTITY,
-        "Expected 400 or 422, got {}", response.status()
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY,
+        "Expected 400 or 422, got {}",
+        response.status()
     );
 
     println!("✅ E2E error handling test passed");

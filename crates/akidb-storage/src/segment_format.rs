@@ -29,8 +29,8 @@
 
 use std::io::{self, Cursor, Read, Write};
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytemuck;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, info};
 
 use akidb_core::{Error, Result};
@@ -60,7 +60,10 @@ impl CompressionType {
         match value {
             0 => Ok(Self::None),
             1 => Ok(Self::Zstd),
-            _ => Err(Error::Storage(format!("Invalid compression type: {}", value))),
+            _ => Err(Error::Storage(format!(
+                "Invalid compression type: {}",
+                value
+            ))),
         }
     }
 }
@@ -86,16 +89,16 @@ impl ChecksumType {
 /// SEGv1 Header structure (64 bytes)
 #[derive(Debug, Clone)]
 pub struct SegmentHeader {
-    pub magic: [u8; 4],           // 4 bytes
-    pub version: u32,              // 4 bytes
-    pub dimension: u32,            // 4 bytes
-    pub vector_count: u64,         // 8 bytes
-    pub vector_offset: u64,        // 8 bytes
-    pub metadata_offset: u64,      // 8 bytes
-    pub bitmap_offset: u64,        // 8 bytes
-    pub hnsw_offset: u64,          // 8 bytes
+    pub magic: [u8; 4],              // 4 bytes
+    pub version: u32,                // 4 bytes
+    pub dimension: u32,              // 4 bytes
+    pub vector_count: u64,           // 8 bytes
+    pub vector_offset: u64,          // 8 bytes
+    pub metadata_offset: u64,        // 8 bytes
+    pub bitmap_offset: u64,          // 8 bytes
+    pub hnsw_offset: u64,            // 8 bytes
     pub checksum_type: ChecksumType, // 1 byte
-    pub reserved: [u8; 11],        // 11 bytes (total = 64)
+    pub reserved: [u8; 11],          // 11 bytes (total = 64)
 }
 
 impl SegmentHeader {
@@ -133,7 +136,8 @@ impl SegmentHeader {
     /// Deserialize header from bytes
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         let mut magic = [0u8; 4];
-        reader.read_exact(&mut magic)
+        reader
+            .read_exact(&mut magic)
             .map_err(|e| Error::Storage(format!("Failed to read magic: {}", e)))?;
 
         if &magic != MAGIC {
@@ -143,7 +147,8 @@ impl SegmentHeader {
             )));
         }
 
-        let version = reader.read_u32::<LittleEndian>()
+        let version = reader
+            .read_u32::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read version: {}", e)))?;
 
         if version != VERSION {
@@ -153,30 +158,38 @@ impl SegmentHeader {
             )));
         }
 
-        let dimension = reader.read_u32::<LittleEndian>()
+        let dimension = reader
+            .read_u32::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read dimension: {}", e)))?;
 
-        let vector_count = reader.read_u64::<LittleEndian>()
+        let vector_count = reader
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read vector_count: {}", e)))?;
 
-        let vector_offset = reader.read_u64::<LittleEndian>()
+        let vector_offset = reader
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read vector_offset: {}", e)))?;
 
-        let metadata_offset = reader.read_u64::<LittleEndian>()
+        let metadata_offset = reader
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read metadata_offset: {}", e)))?;
 
-        let bitmap_offset = reader.read_u64::<LittleEndian>()
+        let bitmap_offset = reader
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read bitmap_offset: {}", e)))?;
 
-        let hnsw_offset = reader.read_u64::<LittleEndian>()
+        let hnsw_offset = reader
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read hnsw_offset: {}", e)))?;
 
-        let checksum_type_byte = reader.read_u8()
+        let checksum_type_byte = reader
+            .read_u8()
             .map_err(|e| Error::Storage(format!("Failed to read checksum_type: {}", e)))?;
         let checksum_type = ChecksumType::from_u8(checksum_type_byte)?;
 
         let mut reserved = [0u8; 11];
-        reader.read_exact(&mut reserved)
+        reader
+            .read_exact(&mut reserved)
             .map_err(|e| Error::Storage(format!("Failed to read reserved: {}", e)))?;
 
         Ok(Self {
@@ -199,7 +212,9 @@ impl SegmentHeader {
 pub struct SegmentData {
     pub dimension: u32,
     pub vectors: Vec<Vec<f32>>,
-    // TODO: Add metadata, bitmaps, HNSW graph in future
+    /// Optional metadata block for payload storage
+    pub metadata: Option<crate::metadata::MetadataBlock>,
+    // TODO: Add bitmaps, HNSW graph in future
 }
 
 impl SegmentData {
@@ -216,7 +231,45 @@ impl SegmentData {
             }
         }
 
-        Ok(Self { dimension, vectors })
+        Ok(Self {
+            dimension,
+            vectors,
+            metadata: None,
+        })
+    }
+
+    /// Create segment data with metadata
+    pub fn with_metadata(
+        dimension: u32,
+        vectors: Vec<Vec<f32>>,
+        metadata: crate::metadata::MetadataBlock,
+    ) -> Result<Self> {
+        // Validate all vectors have correct dimension
+        for (idx, vec) in vectors.iter().enumerate() {
+            if vec.len() != dimension as usize {
+                return Err(Error::Validation(format!(
+                    "Vector at index {} has dimension {}, expected {}",
+                    idx,
+                    vec.len(),
+                    dimension
+                )));
+            }
+        }
+
+        // Validate metadata row count matches vector count
+        if metadata.batch.num_rows() != vectors.len() {
+            return Err(Error::Validation(format!(
+                "Metadata row count ({}) does not match vector count ({})",
+                metadata.batch.num_rows(),
+                vectors.len()
+            )));
+        }
+
+        Ok(Self {
+            dimension,
+            vectors,
+            metadata: Some(metadata),
+        })
     }
 
     pub fn vector_count(&self) -> u64 {
@@ -241,9 +294,10 @@ impl SegmentWriter {
     /// Serialize segment data to bytes
     pub fn write(&self, data: &SegmentData) -> Result<Vec<u8>> {
         info!(
-            "Writing segment with {} vectors, dimension {}",
+            "Writing segment with {} vectors, dimension {}, has_metadata: {}",
             data.vector_count(),
-            data.dimension
+            data.dimension,
+            data.metadata.is_some()
         );
 
         let mut buffer = Vec::new();
@@ -251,7 +305,8 @@ impl SegmentWriter {
         // 1. Write header (placeholder, will update offsets later)
         let mut header = SegmentHeader::new(data.dimension, data.vector_count());
         header.checksum_type = self.checksum_type;
-        header.write_to(&mut buffer)
+        header
+            .write_to(&mut buffer)
             .map_err(|e| Error::Storage(format!("Failed to write header: {}", e)))?;
 
         // 2. Write vector data block
@@ -261,17 +316,26 @@ impl SegmentWriter {
         // Update header with actual offset
         header.vector_offset = vector_offset;
 
-        // 3. Compute checksum over entire buffer (excluding checksum itself)
-        let checksum = self.compute_checksum(&buffer)?;
+        // 3. Write metadata block if present
+        if let Some(ref metadata) = data.metadata {
+            let metadata_offset = buffer.len() as u64;
+            self.write_metadata_block(&mut buffer, metadata)?;
+            header.metadata_offset = metadata_offset;
+            debug!("Metadata block written at offset {}", metadata_offset);
+        }
 
-        // 4. Write checksum footer
-        buffer.extend_from_slice(&checksum);
-
-        // 5. Update header at the beginning
+        // 4. Update header at the beginning BEFORE computing checksum
         let mut header_bytes = Vec::new();
-        header.write_to(&mut header_bytes)
+        header
+            .write_to(&mut header_bytes)
             .map_err(|e| Error::Storage(format!("Failed to write updated header: {}", e)))?;
         buffer[0..HEADER_SIZE].copy_from_slice(&header_bytes);
+
+        // 5. Compute checksum over entire buffer (excluding checksum itself)
+        let checksum = self.compute_checksum(&buffer)?;
+
+        // 6. Write checksum footer
+        buffer.extend_from_slice(&checksum);
 
         debug!(
             "Segment written: {} bytes (header: {}, data: {}, checksum: {})",
@@ -306,11 +370,14 @@ impl SegmentWriter {
         let compressed_size = compressed_data.len() as u64;
 
         // Write block header
-        buffer.write_u8(compression_type as u8)
+        buffer
+            .write_u8(compression_type as u8)
             .map_err(|e| Error::Storage(format!("Failed to write compression type: {}", e)))?;
-        buffer.write_u64::<LittleEndian>(compressed_size)
+        buffer
+            .write_u64::<LittleEndian>(compressed_size)
             .map_err(|e| Error::Storage(format!("Failed to write compressed size: {}", e)))?;
-        buffer.write_u64::<LittleEndian>(uncompressed_size)
+        buffer
+            .write_u64::<LittleEndian>(uncompressed_size)
             .map_err(|e| Error::Storage(format!("Failed to write uncompressed size: {}", e)))?;
 
         // Write compressed data
@@ -321,6 +388,37 @@ impl SegmentWriter {
             uncompressed_size,
             compressed_size,
             (compressed_size as f64 / uncompressed_size as f64) * 100.0
+        );
+
+        Ok(())
+    }
+
+    /// Write metadata block using Arrow IPC format
+    fn write_metadata_block(
+        &self,
+        buffer: &mut Vec<u8>,
+        metadata: &crate::metadata::MetadataBlock,
+    ) -> Result<()> {
+        // Serialize metadata to Arrow IPC format
+        let metadata_bytes = metadata
+            .serialize()
+            .map_err(|e| Error::Storage(format!("Failed to serialize metadata: {}", e)))?;
+
+        let metadata_size = metadata_bytes.len() as u64;
+
+        // Write metadata size first (for easier reading)
+        buffer
+            .write_u64::<LittleEndian>(metadata_size)
+            .map_err(|e| Error::Storage(format!("Failed to write metadata size: {}", e)))?;
+
+        // Write metadata bytes
+        buffer.extend_from_slice(&metadata_bytes);
+
+        debug!(
+            "Metadata block: {} bytes ({} rows, {} columns)",
+            metadata_size,
+            metadata.batch.num_rows(),
+            metadata.batch.num_columns()
         );
 
         Ok(())
@@ -380,9 +478,21 @@ impl SegmentReader {
             header.vector_count,
         )?;
 
+        // 4. Read metadata block if present
+        let metadata = if header.metadata_offset > 0 {
+            // Read metadata from offset to end minus checksum
+            let metadata_end = data.len() - CHECKSUM_SIZE;
+            Some(Self::read_metadata_block(
+                &data[header.metadata_offset as usize..metadata_end],
+            )?)
+        } else {
+            None
+        };
+
         Ok(SegmentData {
             dimension: header.dimension,
             vectors,
+            metadata,
         })
     }
 
@@ -391,28 +501,30 @@ impl SegmentReader {
         let mut cursor = Cursor::new(data);
 
         // Read block header
-        let compression_type_byte = cursor.read_u8()
+        let compression_type_byte = cursor
+            .read_u8()
             .map_err(|e| Error::Storage(format!("Failed to read compression type: {}", e)))?;
         let compression_type = CompressionType::from_u8(compression_type_byte)?;
 
-        let compressed_size = cursor.read_u64::<LittleEndian>()
+        let compressed_size = cursor
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read compressed size: {}", e)))?;
 
-        let uncompressed_size = cursor.read_u64::<LittleEndian>()
+        let uncompressed_size = cursor
+            .read_u64::<LittleEndian>()
             .map_err(|e| Error::Storage(format!("Failed to read uncompressed size: {}", e)))?;
 
         // Read compressed data
         let mut compressed_data = vec![0u8; compressed_size as usize];
-        cursor.read_exact(&mut compressed_data)
+        cursor
+            .read_exact(&mut compressed_data)
             .map_err(|e| Error::Storage(format!("Failed to read compressed data: {}", e)))?;
 
         // Decompress
         let vector_bytes = match compression_type {
             CompressionType::None => compressed_data,
-            CompressionType::Zstd => {
-                zstd::decode_all(&compressed_data[..])
-                    .map_err(|e| Error::Storage(format!("Failed to decompress vectors: {}", e)))?
-            }
+            CompressionType::Zstd => zstd::decode_all(&compressed_data[..])
+                .map_err(|e| Error::Storage(format!("Failed to decompress vectors: {}", e)))?,
         };
 
         // Verify size matches
@@ -475,6 +587,34 @@ impl SegmentReader {
 
         debug!("Checksum verified successfully ({:?})", checksum_type);
         Ok(())
+    }
+
+    /// Read metadata block from Arrow IPC format
+    fn read_metadata_block(data: &[u8]) -> Result<crate::metadata::MetadataBlock> {
+        let mut cursor = Cursor::new(data);
+
+        // Read metadata size
+        let metadata_size = cursor
+            .read_u64::<LittleEndian>()
+            .map_err(|e| Error::Storage(format!("Failed to read metadata size: {}", e)))?;
+
+        // Read metadata bytes
+        let mut metadata_bytes = vec![0u8; metadata_size as usize];
+        cursor
+            .read_exact(&mut metadata_bytes)
+            .map_err(|e| Error::Storage(format!("Failed to read metadata bytes: {}", e)))?;
+
+        // Deserialize from Arrow IPC
+        let metadata = crate::metadata::MetadataBlock::deserialize(&metadata_bytes)
+            .map_err(|e| Error::Storage(format!("Failed to deserialize metadata: {}", e)))?;
+
+        debug!(
+            "Read metadata block: {} rows, {} columns",
+            metadata.batch.num_rows(),
+            metadata.batch.num_columns()
+        );
+
+        Ok(metadata)
     }
 }
 
@@ -543,7 +683,7 @@ mod tests {
     fn test_invalid_dimension() {
         let vectors = vec![
             vec![1.0, 2.0, 3.0],
-            vec![4.0, 5.0],  // Wrong dimension!
+            vec![4.0, 5.0], // Wrong dimension!
         ];
 
         let result = SegmentData::new(3, vectors);
@@ -563,7 +703,10 @@ mod tests {
 
         let result = SegmentReader::read(&bytes);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Checksum verification failed"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Checksum verification failed"));
     }
 
     #[test]
@@ -585,5 +728,92 @@ mod tests {
         assert_eq!(recovered.dimension, 128);
         assert_eq!(recovered.vectors.len(), 1000);
         assert_eq!(recovered.vectors, vectors);
+    }
+
+    #[test]
+    fn test_segment_with_metadata() {
+        use serde_json::json;
+
+        // Create vectors
+        let vectors = vec![
+            vec![1.0, 2.0, 3.0],
+            vec![4.0, 5.0, 6.0],
+            vec![7.0, 8.0, 9.0],
+        ];
+
+        // Create metadata payloads
+        let payloads = vec![
+            json!({"name": "Vector 1", "category": "A", "score": 0.95}),
+            json!({"name": "Vector 2", "category": "B", "score": 0.87}),
+            json!({"name": "Vector 3", "category": "A", "score": 0.92}),
+        ];
+
+        // Convert to MetadataBlock
+        let metadata = crate::metadata::MetadataBlock::from_json(payloads.clone()).unwrap();
+
+        // Create segment data with metadata
+        let data = SegmentData::with_metadata(3, vectors.clone(), metadata).unwrap();
+
+        // Write segment
+        let writer = SegmentWriter::new(CompressionType::Zstd, ChecksumType::XXH3);
+        let bytes = writer.write(&data).unwrap();
+
+        println!("Segment with metadata size: {} bytes", bytes.len());
+
+        // Read segment
+        let recovered = SegmentReader::read(&bytes).unwrap();
+
+        // Verify vectors
+        assert_eq!(recovered.dimension, 3);
+        assert_eq!(recovered.vectors.len(), 3);
+        assert_eq!(recovered.vectors, vectors);
+
+        // Verify metadata
+        assert!(recovered.metadata.is_some());
+        let recovered_metadata = recovered.metadata.unwrap();
+        assert_eq!(recovered_metadata.batch.num_rows(), 3);
+        assert_eq!(recovered_metadata.batch.num_columns(), 3); // name, category, score
+
+        // Convert back to JSON and verify
+        let recovered_payloads = recovered_metadata.to_json().unwrap();
+        assert_eq!(recovered_payloads.len(), 3);
+        assert_eq!(recovered_payloads[0]["name"], "Vector 1");
+        assert_eq!(recovered_payloads[1]["category"], "B");
+        assert_eq!(recovered_payloads[2]["score"], 0.92);
+    }
+
+    #[test]
+    fn test_segment_without_metadata_backward_compatible() {
+        // Test that segments without metadata can still be read
+        let vectors = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+
+        let data = SegmentData::new(2, vectors.clone()).unwrap();
+
+        let writer = SegmentWriter::new(CompressionType::None, ChecksumType::XXH3);
+        let bytes = writer.write(&data).unwrap();
+
+        let recovered = SegmentReader::read(&bytes).unwrap();
+
+        assert_eq!(recovered.dimension, 2);
+        assert_eq!(recovered.vectors, vectors);
+        assert!(recovered.metadata.is_none()); // No metadata
+    }
+
+    #[test]
+    fn test_metadata_row_count_mismatch() {
+        use serde_json::json;
+
+        let vectors = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let payloads = vec![
+            json!({"name": "Only one"}),
+            // Missing second payload!
+        ];
+
+        let metadata = crate::metadata::MetadataBlock::from_json(payloads).unwrap();
+
+        // Should fail because metadata has 1 row but vectors have 2
+        let result = SegmentData::with_metadata(2, vectors, metadata);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not match"));
     }
 }

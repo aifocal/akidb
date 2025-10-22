@@ -48,7 +48,9 @@ impl VectorStore {
 
     /// Add a batch of vectors
     fn add_batch(&mut self, batch: &IndexBatch) -> Result<()> {
-        if batch.primary_keys.len() != batch.vectors.len() || batch.vectors.len() != batch.payloads.len() {
+        if batch.primary_keys.len() != batch.vectors.len()
+            || batch.vectors.len() != batch.payloads.len()
+        {
             return Err(Error::Validation(
                 "Batch arrays must have equal length".to_string(),
             ));
@@ -245,6 +247,36 @@ impl NativeIndexProvider {
             indices: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    /// Extract vectors and payloads for persistence to storage
+    ///
+    /// This method retrieves all vectors and their associated payloads from the index
+    /// so they can be persisted to S3 storage.
+    pub fn extract_segment_data(
+        &self,
+        handle: &IndexHandle,
+    ) -> Result<(Vec<Vec<f32>>, Vec<serde_json::Value>)> {
+        let indices = self.indices.read();
+        let store = indices
+            .get(&handle.index_id)
+            .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
+
+        // Convert flat vector array to Vec<Vec<f32>>
+        let vectors: Vec<Vec<f32>> = store
+            .vectors
+            .chunks(store.dimension)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        debug!(
+            "Extracted {} vectors and {} payloads from index {}",
+            vectors.len(),
+            store.payloads.len(),
+            handle.index_id
+        );
+
+        Ok((vectors, store.payloads.clone()))
+    }
 }
 
 impl Default for NativeIndexProvider {
@@ -368,10 +400,7 @@ impl IndexProvider for NativeIndexProvider {
 
         let result = store.search(&query, &options)?;
 
-        debug!(
-            "Search returned {} results",
-            result.neighbors.len()
-        );
+        debug!("Search returned {} results", result.neighbors.len());
 
         Ok(result)
     }
@@ -387,7 +416,11 @@ impl IndexProvider for NativeIndexProvider {
         let data = serde_json::to_vec(store)
             .map_err(|e| Error::Storage(format!("Failed to serialize index: {}", e)))?;
 
-        debug!("Serialized index {} ({} bytes)", handle.index_id, data.len());
+        debug!(
+            "Serialized index {} ({} bytes)",
+            handle.index_id,
+            data.len()
+        );
 
         Ok(data)
     }
@@ -418,6 +451,14 @@ impl IndexProvider for NativeIndexProvider {
         debug!("Deserialized index {}", index_id);
 
         Ok(handle)
+    }
+
+    fn extract_for_persistence(
+        &self,
+        handle: &IndexHandle,
+    ) -> Result<(Vec<Vec<f32>>, Vec<serde_json::Value>)> {
+        // Delegate to the existing extract_segment_data method
+        self.extract_segment_data(handle)
     }
 }
 

@@ -20,4 +20,18 @@ pub trait IndexProvider: Send + Sync {
     ) -> Result<SearchResult>;
     fn serialize(&self, handle: &IndexHandle) -> Result<Vec<u8>>;
     fn deserialize(&self, bytes: &[u8]) -> Result<IndexHandle>;
+
+    /// Extract vectors and payloads for persistence
+    ///
+    /// This method retrieves all vectors and their associated payloads from the index
+    /// so they can be persisted to storage. Returns empty vectors if the index
+    /// does not support this operation.
+    fn extract_for_persistence(
+        &self,
+        handle: &IndexHandle,
+    ) -> Result<(Vec<Vec<f32>>, Vec<serde_json::Value>)> {
+        // Default implementation returns empty - providers can override
+        let _ = handle;
+        Ok((Vec::new(), Vec::new()))
+    }
 }

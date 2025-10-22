@@ -41,4 +41,35 @@ pub trait StorageBackend: Send + Sync {
 
     /// List all objects with the given prefix.
     async fn list_objects(&self, prefix: &str) -> Result<Vec<String>>;
+
+    /// Write a segment with vector data and metadata (for payload persistence)
+    ///
+    /// This method allows writing segments directly from vector data and metadata,
+    /// enabling end-to-end payload persistence. Default implementation returns
+    /// an error - backends that support this feature should override.
+    async fn write_segment_with_data(
+        &self,
+        _descriptor: &SegmentDescriptor,
+        _vectors: Vec<Vec<f32>>,
+        _metadata: Option<crate::metadata::MetadataBlock>,
+    ) -> Result<()> {
+        Err(akidb_core::Error::NotImplemented(
+            "write_segment_with_data not implemented for this backend".to_string(),
+        ))
+    }
+
+    /// Load a segment with vectors and metadata from storage
+    ///
+    /// This method loads a complete segment including vectors and optional metadata,
+    /// enabling collection recovery on restart. Default implementation returns
+    /// an error - backends that support this feature should override.
+    async fn load_segment(
+        &self,
+        _collection: &str,
+        _segment_id: Uuid,
+    ) -> Result<crate::segment_format::SegmentData> {
+        Err(akidb_core::Error::NotImplemented(
+            "load_segment not implemented for this backend".to_string(),
+        ))
+    }
 }

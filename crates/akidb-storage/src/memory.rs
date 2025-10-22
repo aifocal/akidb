@@ -149,8 +149,8 @@ impl StorageBackend for MemoryStorageBackend {
 
     async fn persist_manifest(&self, manifest: &CollectionManifest) -> Result<()> {
         let key = format!("collections/{}/manifest.json", manifest.collection);
-        let data = serde_json::to_vec(manifest)
-            .map_err(|e| akidb_core::Error::Storage(e.to_string()))?;
+        let data =
+            serde_json::to_vec(manifest).map_err(|e| akidb_core::Error::Storage(e.to_string()))?;
         self.put_object(&key, Bytes::from(data)).await
     }
 
@@ -187,5 +187,16 @@ impl StorageBackend for MemoryStorageBackend {
             .cloned()
             .collect();
         Ok(keys)
+    }
+
+    async fn write_segment_with_data(
+        &self,
+        _descriptor: &SegmentDescriptor,
+        _vectors: Vec<Vec<f32>>,
+        _metadata: Option<crate::metadata::MetadataBlock>,
+    ) -> Result<()> {
+        // No-op for in-memory testing backend
+        // In real usage, this would serialize the segment with metadata
+        Ok(())
     }
 }

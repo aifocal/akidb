@@ -43,7 +43,12 @@ async fn test_health_check() {
     let app = build_router(state);
 
     let response = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -58,7 +63,12 @@ async fn test_logging_middleware() {
 
     // Make a request to trigger logging
     let response = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -237,7 +247,10 @@ async fn test_collection_not_found() {
         .await
         .unwrap();
     let error_response: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(error_response["error"].as_str().unwrap().contains("not found"));
+    assert!(error_response["error"]
+        .as_str()
+        .unwrap()
+        .contains("not found"));
 }
 
 #[tokio::test]
@@ -293,7 +306,12 @@ async fn test_list_collections() {
     // Initially should be empty
     let response = app
         .clone()
-        .oneshot(Request::builder().uri("/collections").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/collections")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -327,7 +345,12 @@ async fn test_list_collections() {
 
     // List should now contain both
     let response = app
-        .oneshot(Request::builder().uri("/collections").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/collections")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 

@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow::datatypes::{DataType, Schema};
-use arrow::json::{ReaderBuilder, reader};
-use arrow::ipc::writer::StreamWriter;
 use arrow::ipc::reader::StreamReader;
+use arrow::ipc::writer::StreamWriter;
+use arrow::json::{reader, ReaderBuilder};
 
 use crate::error::Result;
 use akidb_core::Error;
@@ -127,43 +127,69 @@ impl MetadataBlock {
 
         match array.data_type() {
             DataType::Boolean => {
-                let arr = array.as_any().downcast_ref::<BooleanArray>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast Boolean array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast Boolean array".to_string())
+                    })?;
                 Ok(serde_json::Value::Bool(arr.value(row_idx)))
             }
             DataType::Int8 | DataType::Int16 | DataType::Int32 => {
-                let arr = array.as_any().downcast_ref::<Int32Array>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast Int32 array".to_string()))?;
+                let arr = array.as_any().downcast_ref::<Int32Array>().ok_or_else(|| {
+                    Error::Serialization("Failed to downcast Int32 array".to_string())
+                })?;
                 Ok(serde_json::json!(arr.value(row_idx)))
             }
             DataType::Int64 => {
-                let arr = array.as_any().downcast_ref::<Int64Array>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast Int64 array".to_string()))?;
+                let arr = array.as_any().downcast_ref::<Int64Array>().ok_or_else(|| {
+                    Error::Serialization("Failed to downcast Int64 array".to_string())
+                })?;
                 Ok(serde_json::json!(arr.value(row_idx)))
             }
             DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-                let arr = array.as_any().downcast_ref::<UInt64Array>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast UInteger array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast UInteger array".to_string())
+                    })?;
                 Ok(serde_json::json!(arr.value(row_idx)))
             }
             DataType::Float32 => {
-                let arr = array.as_any().downcast_ref::<Float32Array>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast Float32 array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<Float32Array>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast Float32 array".to_string())
+                    })?;
                 Ok(serde_json::json!(arr.value(row_idx)))
             }
             DataType::Float64 => {
-                let arr = array.as_any().downcast_ref::<Float64Array>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast Float64 array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast Float64 array".to_string())
+                    })?;
                 Ok(serde_json::json!(arr.value(row_idx)))
             }
             DataType::Utf8 => {
-                let arr = array.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast String array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast String array".to_string())
+                    })?;
                 Ok(serde_json::Value::String(arr.value(row_idx).to_string()))
             }
             DataType::LargeUtf8 => {
-                let arr = array.as_any().downcast_ref::<LargeStringArray>()
-                    .ok_or_else(|| Error::Serialization("Failed to downcast LargeString array".to_string()))?;
+                let arr = array
+                    .as_any()
+                    .downcast_ref::<LargeStringArray>()
+                    .ok_or_else(|| {
+                        Error::Serialization("Failed to downcast LargeString array".to_string())
+                    })?;
                 Ok(serde_json::Value::String(arr.value(row_idx).to_string()))
             }
             _ => {
@@ -185,14 +211,17 @@ impl MetadataBlock {
 
         // Write Arrow IPC stream format
         {
-            let mut writer = StreamWriter::try_new(&mut buffer, &self.schema)
-                .map_err(|e| Error::Serialization(format!("Failed to create Arrow IPC writer: {}", e)))?;
+            let mut writer = StreamWriter::try_new(&mut buffer, &self.schema).map_err(|e| {
+                Error::Serialization(format!("Failed to create Arrow IPC writer: {}", e))
+            })?;
 
-            writer.write(&self.batch)
+            writer
+                .write(&self.batch)
                 .map_err(|e| Error::Serialization(format!("Failed to write Arrow batch: {}", e)))?;
 
-            writer.finish()
-                .map_err(|e| Error::Serialization(format!("Failed to finish Arrow IPC stream: {}", e)))?;
+            writer.finish().map_err(|e| {
+                Error::Serialization(format!("Failed to finish Arrow IPC stream: {}", e))
+            })?;
         }
 
         // Apply compression if needed
@@ -206,7 +235,9 @@ impl MetadataBlock {
             }
             CompressionType::Lz4 => {
                 // LZ4 compression not yet implemented
-                Err(Error::NotImplemented("LZ4 compression not yet supported".to_string()))
+                Err(Error::NotImplemented(
+                    "LZ4 compression not yet supported".to_string(),
+                ))
             }
         }
     }
@@ -227,8 +258,9 @@ impl MetadataBlock {
         let decompressed_data = data;
 
         let cursor = Cursor::new(decompressed_data);
-        let reader = StreamReader::try_new(cursor, None)
-            .map_err(|e| Error::Serialization(format!("Failed to create Arrow IPC reader: {}", e)))?;
+        let reader = StreamReader::try_new(cursor, None).map_err(|e| {
+            Error::Serialization(format!("Failed to create Arrow IPC reader: {}", e))
+        })?;
 
         let schema = reader.schema();
 
@@ -279,7 +311,8 @@ mod tests {
         ];
 
         // Convert to Arrow
-        let metadata = MetadataBlock::from_json(payloads.clone()).expect("Failed to create MetadataBlock");
+        let metadata =
+            MetadataBlock::from_json(payloads.clone()).expect("Failed to create MetadataBlock");
 
         // Verify batch properties
         assert_eq!(metadata.batch.num_rows(), 3);
@@ -321,7 +354,10 @@ mod tests {
 
         // Verify
         assert_eq!(deserialized.batch.num_rows(), metadata.batch.num_rows());
-        assert_eq!(deserialized.batch.num_columns(), metadata.batch.num_columns());
+        assert_eq!(
+            deserialized.batch.num_columns(),
+            metadata.batch.num_columns()
+        );
 
         // Convert to JSON to verify content
         let original_json = metadata.to_json().expect("Failed to convert to JSON");
@@ -341,8 +377,8 @@ mod tests {
     fn test_mixed_types() {
         // Test JSON with mixed types
         let payloads = vec![
-            json!({"str_field": "text", "int_field": 42, "float_field": 3.14, "bool_field": true}),
-            json!({"str_field": "more text", "int_field": 100, "float_field": 2.71, "bool_field": false}),
+            json!({"str_field": "text", "int_field": 42, "float_field": 3.15, "bool_field": true}),
+            json!({"str_field": "more text", "int_field": 100, "float_field": 2.72, "bool_field": false}),
         ];
 
         let metadata = MetadataBlock::from_json(payloads).expect("Failed to create MetadataBlock");
@@ -363,7 +399,8 @@ mod tests {
             json!({"data": "This is more test data that should compress well"}),
         ];
 
-        let mut metadata = MetadataBlock::from_json(payloads).expect("Failed to create MetadataBlock");
+        let mut metadata =
+            MetadataBlock::from_json(payloads).expect("Failed to create MetadataBlock");
         metadata.compression = CompressionType::Zstd;
 
         // Serialize with compression
@@ -371,7 +408,8 @@ mod tests {
         assert!(!compressed.is_empty());
 
         // Deserialize
-        let deserialized = MetadataBlock::deserialize_zstd(&compressed).expect("Failed to deserialize Zstd");
+        let deserialized =
+            MetadataBlock::deserialize_zstd(&compressed).expect("Failed to deserialize Zstd");
 
         // Verify content
         let original_json = metadata.to_json().expect("Failed to convert to JSON");

@@ -62,9 +62,7 @@ impl SimpleExecutionEngine {
             PlanNode::Filter(_) => {
                 // TODO: Implement filter execution
                 warn!("Filter node execution not yet implemented");
-                Err(Error::NotImplemented(
-                    "Filter node execution".to_string(),
-                ))
+                Err(Error::NotImplemented("Filter node execution".to_string()))
             }
             PlanNode::Merge(_) => {
                 // TODO: Implement merge execution

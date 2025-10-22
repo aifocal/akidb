@@ -73,7 +73,10 @@ pub async fn create_collection(
 
     // Check if collection already exists
     if state.collection_exists(&req.name).await {
-        return Err(ApiError::Conflict(format!("Collection '{}' already exists", req.name)));
+        return Err(ApiError::Conflict(format!(
+            "Collection '{}' already exists",
+            req.name
+        )));
     }
 
     // Create collection descriptor
@@ -133,13 +136,10 @@ pub async fn get_collection(
 ) -> std::result::Result<Json<CollectionResponse>, ApiError> {
     info!("Getting collection: {}", name);
 
-    let metadata = state
-        .get_collection(&name)
-        .await
-        .map_err(|e| match e {
-            Error::NotFound(_) => ApiError::NotFound(format!("Collection '{}' not found", name)),
-            _ => ApiError::Internal(e),
-        })?;
+    let metadata = state.get_collection(&name).await.map_err(|e| match e {
+        Error::NotFound(_) => ApiError::NotFound(format!("Collection '{}' not found", name)),
+        _ => ApiError::Internal(e),
+    })?;
 
     Ok(Json(CollectionResponse {
         name: metadata.descriptor.name.clone(),
@@ -158,22 +158,17 @@ pub async fn delete_collection(
 ) -> std::result::Result<StatusCode, ApiError> {
     info!("Deleting collection: {}", name);
 
-    state
-        .delete_collection(&name)
-        .await
-        .map_err(|e| match e {
-            Error::NotFound(_) => ApiError::NotFound(format!("Collection '{}' not found", name)),
-            _ => ApiError::Internal(e),
-        })?;
+    state.delete_collection(&name).await.map_err(|e| match e {
+        Error::NotFound(_) => ApiError::NotFound(format!("Collection '{}' not found", name)),
+        _ => ApiError::Internal(e),
+    })?;
 
     info!("Collection '{}' deleted successfully", name);
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// List all collections
-pub async fn list_collections(
-    State(state): State<AppState>,
-) -> Json<Vec<String>> {
+pub async fn list_collections(State(state): State<AppState>) -> Json<Vec<String>> {
     info!("Listing all collections");
 
     let collections = state.list_collections().await;
@@ -199,7 +194,10 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             ApiError::Internal(err) => {
                 error!("Internal error: {:?}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Internal error: {}", err))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Internal error: {}", err),
+                )
             }
         };
 

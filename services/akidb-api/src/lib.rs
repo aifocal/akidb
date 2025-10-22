@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod grpc;
 pub mod handlers;
 pub mod middleware;
@@ -27,6 +28,9 @@ pub async fn run_server() -> Result<()> {
 
     // Create app state
     let state = AppState::new(storage, index_provider, planner, engine);
+
+    // Bootstrap collections from storage (restart recovery)
+    bootstrap::bootstrap_collections(&state).await?;
 
     // Build router
     let router = rest::build_router(state);

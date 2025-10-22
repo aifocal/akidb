@@ -145,10 +145,15 @@ impl S3WalBackend {
         // Try to get the object, return empty vec if not found
         match self.storage.get_object(&key).await {
             Ok(data) => {
-                let entries: Vec<WalEntry> = serde_json::from_slice(&data)
-                    .map_err(|e| Error::Storage(format!("Failed to deserialize WAL entries: {}", e)))?;
+                let entries: Vec<WalEntry> = serde_json::from_slice(&data).map_err(|e| {
+                    Error::Storage(format!("Failed to deserialize WAL entries: {}", e))
+                })?;
 
-                debug!("Loaded {} WAL entries for stream {}", entries.len(), stream.0);
+                debug!(
+                    "Loaded {} WAL entries for stream {}",
+                    entries.len(),
+                    stream.0
+                );
                 Ok(entries)
             }
             Err(Error::NotFound(_)) => {
@@ -214,7 +219,10 @@ impl WalAppender for S3WalBackend {
             buffers.entry(stream).or_default().push(entry);
         }
 
-        debug!("Appended WAL record with LSN {} to stream {}", lsn.0, stream.0);
+        debug!(
+            "Appended WAL record with LSN {} to stream {}",
+            lsn.0, stream.0
+        );
         Ok(lsn)
     }
 
@@ -235,7 +243,11 @@ impl WalAppender for S3WalBackend {
         // Persist to S3
         self.persist_entries(stream, &entries).await?;
 
-        info!("Synced {} WAL entries for stream {}", entries.len(), stream.0);
+        info!(
+            "Synced {} WAL entries for stream {}",
+            entries.len(),
+            stream.0
+        );
         Ok(())
     }
 }
@@ -282,7 +294,10 @@ impl WalReplayer for S3WalBackend {
     }
 
     async fn next_batch(&self, stream: WalStreamId, max_bytes: usize) -> Result<Vec<Bytes>> {
-        debug!("Fetching next batch (max {} bytes) from stream {}", max_bytes, stream.0);
+        debug!(
+            "Fetching next batch (max {} bytes) from stream {}",
+            max_bytes, stream.0
+        );
 
         // Load entries
         let entries = self.load_entries(stream).await?;
@@ -303,7 +318,11 @@ impl WalReplayer for S3WalBackend {
             batch.push(Bytes::from(data));
         }
 
-        debug!("Returning batch of {} entries ({} bytes)", batch.len(), current_bytes);
+        debug!(
+            "Returning batch of {} entries ({} bytes)",
+            batch.len(),
+            current_bytes
+        );
         Ok(batch)
     }
 }
@@ -437,7 +456,12 @@ mod tests {
         let deserialized: WalRecord = serde_json::from_str(&serialized).unwrap();
 
         match deserialized {
-            WalRecord::Insert { collection, primary_key, vector, .. } => {
+            WalRecord::Insert {
+                collection,
+                primary_key,
+                vector,
+                ..
+            } => {
                 assert_eq!(collection, "test");
                 assert_eq!(primary_key, "key1");
                 assert_eq!(vector, vec![1.0, 2.0, 3.0]);
@@ -462,7 +486,10 @@ mod tests {
 
         assert_eq!(deserialized.lsn, entry.lsn);
         match deserialized.record {
-            WalRecord::Delete { collection, primary_key } => {
+            WalRecord::Delete {
+                collection,
+                primary_key,
+            } => {
                 assert_eq!(collection, "test");
                 assert_eq!(primary_key, "key1");
             }
@@ -624,8 +651,14 @@ mod integration_tests {
         // Recover
         let stats = wal2.recover().await.unwrap();
         assert_eq!(stats.streams_recovered, 2);
-        assert_eq!(stats.last_lsn_per_stream.get(&stream1).map(|l| l.value()), Some(3));
-        assert_eq!(stats.last_lsn_per_stream.get(&stream2).map(|l| l.value()), Some(5));
+        assert_eq!(
+            stats.last_lsn_per_stream.get(&stream1).map(|l| l.value()),
+            Some(3)
+        );
+        assert_eq!(
+            stats.last_lsn_per_stream.get(&stream2).map(|l| l.value()),
+            Some(5)
+        );
 
         // Verify LSN counters are restored
         // Next append should use LSN 4 for stream1 and LSN 6 for stream2

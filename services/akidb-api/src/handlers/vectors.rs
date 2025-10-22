@@ -39,11 +39,17 @@ pub async fn insert_vectors(
     Path(collection_name): Path<String>,
     Json(req): Json<InsertVectorsRequest>,
 ) -> std::result::Result<Json<InsertVectorsResponse>, ApiError> {
-    info!("Inserting {} vectors into collection: {}", req.vectors.len(), collection_name);
+    info!(
+        "Inserting {} vectors into collection: {}",
+        req.vectors.len(),
+        collection_name
+    );
 
     // Validate request
     if req.vectors.is_empty() {
-        return Err(ApiError::Validation("Cannot insert empty vector list".to_string()));
+        return Err(ApiError::Validation(
+            "Cannot insert empty vector list".to_string(),
+        ));
     }
 
     // Get collection metadata
@@ -59,16 +65,13 @@ pub async fn insert_vectors(
 
     // Validate vectors
     for (idx, vec_input) in req.vectors.iter().enumerate() {
-        validation::validate_vector(
-            &vec_input.vector,
-            metadata.descriptor.vector_dim as usize,
-        )
-        .map_err(|e| match e {
-            ApiError::Validation(msg) => {
-                ApiError::Validation(format!("Vector at index {}: {}", idx, msg))
-            }
-            other => other,
-        })?;
+        validation::validate_vector(&vec_input.vector, metadata.descriptor.vector_dim as usize)
+            .map_err(|e| match e {
+                ApiError::Validation(msg) => {
+                    ApiError::Validation(format!("Vector at index {}: {}", idx, msg))
+                }
+                other => other,
+            })?;
     }
 
     // Create segment for tracking
@@ -137,6 +140,42 @@ pub async fn insert_vectors(
         .add_batch(&index_handle, batch)
         .await
         .map_err(ApiError::Internal)?;
+
+    // Extract vectors and payloads for persistence to S3
+    let (vectors, payloads) = state
+        .index_provider
+        .extract_for_persistence(&index_handle)
+        .map_err(ApiError::Internal)?;
+
+    // Only persist if we have data
+    if !vectors.is_empty() {
+        debug!(
+            "Extracted {} vectors and {} payloads for persistence",
+            vectors.len(),
+            payloads.len()
+        );
+
+        // Create metadata block from payloads
+        let metadata = akidb_storage::MetadataBlock::from_json(payloads).map_err(|e| {
+            ApiError::Internal(akidb_core::Error::Storage(format!(
+                "Failed to create metadata: {}",
+                e
+            )))
+        })?;
+
+        // Persist to S3
+        state
+            .storage
+            .write_segment_with_data(&segment_descriptor, vectors, Some(metadata))
+            .await
+            .map_err(ApiError::Internal)?;
+
+        info!(
+            "Persisted {} vectors with metadata to S3, segment {}",
+            req.vectors.len(),
+            segment_id
+        );
+    }
 
     info!(
         "Successfully inserted {} vectors into collection '{}', segment {}",
