@@ -1,0 +1,19 @@
+[package]
+name = "akidb-query"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+akidb-core = { path = "../akidb-core" }
+akidb-index = { path = "../akidb-index" }
+akidb-storage = { path = "../akidb-storage" }
+async-trait = { workspace = true }
+roaring = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }

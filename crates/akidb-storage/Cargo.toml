@@ -1,0 +1,24 @@
+[package]
+name = "akidb-storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+akidb-core = { path = "../akidb-core" }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+bytemuck = "1.14"
+byteorder = "1.5"
+chrono = { workspace = true }
+crc32c = "0.6"
+futures = "0.3"
+object_store = { workspace = true }
+parking_lot = { workspace = true }
+rand = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+zstd = "0.13"

@@ -4,3 +4,16 @@
 .automatosx/logs/
 automatosx/tmp/  # v5.2: Temporary files
 automatosx.config.json  # Optional: remove to track config
+
+# Build artifacts
+target/
+dist/
+
+# Local environment overrides
+.env
+
+# Temporary files and improvement plans
+tmp/
+
+# macOS
+.DS_Store

@@ -1,0 +1,15 @@
+[package]
+name = "akidb-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# arrow = { workspace = true }  # TODO: Re-enable when implementing SEGv1 format (resolve chrono compatibility)
+bytes = { workspace = true }
+chrono = { workspace = true }
+roaring = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

@@ -1,0 +1,25 @@
+[package]
+name = "akidb-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "akidb_api"
+path = "src/lib.rs"
+
+[dependencies]
+akidb-core = { path = "../../crates/akidb-core" }
+akidb-index = { path = "../../crates/akidb-index" }
+akidb-query = { path = "../../crates/akidb-query" }
+akidb-storage = { path = "../../crates/akidb-storage" }
+axum = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
