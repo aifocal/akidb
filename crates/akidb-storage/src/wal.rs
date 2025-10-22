@@ -98,21 +98,11 @@ pub trait WalReplayer: Send + Sync {
 }
 
 /// Recovery statistics returned after crash recovery.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RecoveryStats {
     pub streams_recovered: usize,
     pub total_entries: u64,
     pub last_lsn_per_stream: HashMap<WalStreamId, LogSequence>,
-}
-
-impl Default for RecoveryStats {
-    fn default() -> Self {
-        Self {
-            streams_recovered: 0,
-            total_entries: 0,
-            last_lsn_per_stream: HashMap::new(),
-        }
-    }
 }
 
 /// Interface for WAL crash recovery operations.

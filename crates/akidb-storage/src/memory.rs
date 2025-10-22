@@ -48,7 +48,7 @@ impl StorageBackend for MemoryStorageBackend {
         let manifest = CollectionManifest {
             collection: descriptor.name.clone(),
             dimension: descriptor.vector_dim as u32,
-            metric: descriptor.distance.clone(),
+            metric: descriptor.distance,
             latest_version: 0,
             total_vectors: 0,
             epoch: 0,
