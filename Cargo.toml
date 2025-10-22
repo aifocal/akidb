@@ -22,7 +22,7 @@ async-trait = "0.1"
 arrow = "50.0.0"
 axum = { version = "0.7", features = ["macros", "json"] }
 bytes = "1.5"
-chrono = { version = "0.4", features = ["clock", "serde"] }
+chrono = { version = "=0.4.37", features = ["clock", "serde"] }
 object_store = { version = "0.10", features = ["aws", "gcp"] }
 parking_lot = "0.12"
 rayon = "1.8"

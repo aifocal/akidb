@@ -22,3 +22,5 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zstd = "0.13"
+arrow = "50.0"
+arrow-ipc = "50.0"
