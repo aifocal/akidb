@@ -161,17 +161,16 @@ async fn test_e2e_storage_persistence_with_segv1() {
         .map(|i| (0..128).map(|j| (i * 128 + j) as f32 * 0.01).collect())
         .collect();
 
-    // 4. Write segment with actual vector data (SEGv1 format)
-    // Note: Using MemoryStorageBackend which doesn't have write_segment_with_data yet
-    // This demonstrates the intended usage pattern
-
-    // For now, we'll verify that SegmentData can be created and serialized
+    // 4. Verify SegmentData serialization (SEGv1 format)
     let segment_data = SegmentData::new(128, vectors.clone()).unwrap();
     assert_eq!(segment_data.dimension, 128);
     assert_eq!(segment_data.vectors.len(), 100);
 
-    // 5. Write segment descriptor
-    storage.write_segment(&descriptor).await.unwrap();
+    // 5. Write segment with vectors using SEGv1 format (no metadata for this test)
+    storage
+        .write_segment_with_data(&descriptor, vectors, None)
+        .await
+        .unwrap();
 
     // 6. Verify segment was written by checking if it exists
     let segment_key = format!("collections/embeddings/segments/{}.json", segment_id);

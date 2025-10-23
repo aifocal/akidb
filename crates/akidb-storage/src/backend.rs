@@ -22,13 +22,30 @@ pub trait StorageBackend: Send + Sync {
     async fn drop_collection(&self, name: &str) -> Result<()>;
     /// Write a segment descriptor (metadata only)
     ///
-    /// DEPRECATED: This method only persists the segment descriptor without vector data.
-    /// Use `write_segment_with_data` instead for complete segment persistence including
-    /// vectors and metadata. This method remains for backward compatibility but may be
-    /// removed in a future release.
+    /// # Deprecation Notice
     ///
-    /// Migration path: Replace calls to `write_segment` followed by manual `put_object` calls
-    /// with a single `write_segment_with_data` call. See tmp/MIGRATION-PATH.md for details.
+    /// **DEPRECATED**: This method only persists the segment descriptor without vector data.
+    /// Use `write_segment_with_data` instead for complete segment persistence including
+    /// vectors and metadata.
+    ///
+    /// ## Migration Path
+    ///
+    /// Replace:
+    /// ```rust,ignore
+    /// storage.write_segment(&descriptor).await?;
+    /// storage.put_object(&key, segment_data).await?;
+    /// ```
+    ///
+    /// With:
+    /// ```rust,ignore
+    /// storage.write_segment_with_data(&descriptor, vectors, Some(metadata)).await?;
+    /// ```
+    ///
+    /// See `docs/migration-guide.md` for complete migration instructions.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `write_segment_with_data` for complete segment persistence with SEGv1 format"
+    )]
     async fn write_segment(&self, descriptor: &SegmentDescriptor) -> Result<()>;
     async fn seal_segment(&self, segment_id: Uuid) -> Result<SegmentDescriptor>;
     async fn load_manifest(&self, collection: &str) -> Result<CollectionManifest>;
