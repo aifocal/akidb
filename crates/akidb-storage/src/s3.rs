@@ -498,66 +498,115 @@ impl S3StorageBackend {
             )));
         }
 
-        // Validate collection exists and dimension matches
-        let mut manifest =
-            self.load_manifest(&descriptor.collection)
-                .await
-                .map_err(|e| match e {
-                    Error::NotFound(_) => Error::Validation(format!(
-                        "Collection {} does not exist",
-                        descriptor.collection
-                    )),
-                    other => other,
-                })?;
-
-        if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
-            return Err(Error::Validation(format!(
-                "Segment dimension {} does not match collection dimension {}",
-                descriptor.vector_dim, manifest.dimension
-            )));
-        }
-
-        // Check for duplicates
-        if manifest
-            .segments
-            .iter()
-            .any(|seg| seg.segment_id == descriptor.segment_id)
-        {
-            return Err(Error::Conflict(format!(
-                "Segment {} already exists",
-                descriptor.segment_id
-            )));
-        }
-
-        // Create segment data with optional metadata
-        let segment_data = if let Some(metadata_block) = metadata {
-            SegmentData::with_metadata(descriptor.vector_dim as u32, vectors, metadata_block)?
+        // Create segment data with optional metadata (do this once before the loop)
+        let segment_data = if let Some(ref metadata_block) = metadata {
+            SegmentData::with_metadata(descriptor.vector_dim as u32, vectors.clone(), metadata_block.clone())?
         } else {
-            SegmentData::new(descriptor.vector_dim as u32, vectors)?
+            SegmentData::new(descriptor.vector_dim as u32, vectors.clone())?
         };
 
-        // Serialize using SEGv1 format with compression
+        // Serialize using SEGv1 format with compression (do this once before the loop)
         let writer = SegmentWriter::new(CompressionType::Zstd, ChecksumType::XXH3);
         let segment_bytes = writer.write(&segment_data)?;
 
-        // Upload to S3
-        let key = self.segment_key(&descriptor.collection, descriptor.segment_id);
-        self.put_object_internal(&key, Bytes::from(segment_bytes))
+        // Upload to S3 (do this once before the loop)
+        let seg_key = self.segment_key(&descriptor.collection, descriptor.segment_id);
+        self.put_object_internal(&seg_key, Bytes::from(segment_bytes))
             .await?;
 
-        // Update manifest
-        manifest.segments.push(descriptor.clone());
-        Self::bump_manifest_revision(&mut manifest);
-        self.persist_manifest(&manifest).await?;
+        // Retry loop for optimistic locking on manifest update
+        const MAX_RETRIES: u32 = 10;
+        let mut retry_count = 0;
 
-        info!(
-            "Segment {} with {} vectors written successfully (SEGv1 format, metadata: {})",
-            descriptor.segment_id,
-            segment_data.vector_count(),
-            segment_data.metadata.is_some()
-        );
+        loop {
+            // Validate collection exists and dimension matches
+            let manifest =
+                self.load_manifest(&descriptor.collection)
+                    .await
+                    .map_err(|e| match e {
+                        Error::NotFound(_) => Error::Validation(format!(
+                            "Collection {} does not exist",
+                            descriptor.collection
+                        )),
+                        other => other,
+                    })?;
 
-        Ok(())
+            let original_version = manifest.latest_version;
+
+            if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
+                // Clean up uploaded segment on validation failure
+                let _ = self.delete_object_internal(&seg_key).await;
+                return Err(Error::Validation(format!(
+                    "Segment dimension {} does not match collection dimension {}",
+                    descriptor.vector_dim, manifest.dimension
+                )));
+            }
+
+            // Check for duplicates
+            if manifest
+                .segments
+                .iter()
+                .any(|seg| seg.segment_id == descriptor.segment_id)
+            {
+                // Clean up uploaded segment on conflict
+                let _ = self.delete_object_internal(&seg_key).await;
+                return Err(Error::Conflict(format!(
+                    "Segment {} already exists",
+                    descriptor.segment_id
+                )));
+            }
+
+            // Update manifest
+            let mut updated_manifest = manifest.clone();
+            updated_manifest.segments.push(descriptor.clone());
+            updated_manifest.total_vectors += descriptor.record_count as u64;
+            if updated_manifest.dimension == 0 {
+                updated_manifest.dimension = descriptor.vector_dim as u32;
+            }
+            Self::bump_manifest_revision(&mut updated_manifest);
+
+            // Try to persist with version check
+            match self
+                .persist_manifest_with_check(&updated_manifest, original_version)
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        "Segment {} with {} vectors written successfully (SEGv1 format, metadata: {})",
+                        descriptor.segment_id,
+                        segment_data.vector_count(),
+                        segment_data.metadata.is_some()
+                    );
+                    return Ok(());
+                }
+                Err(Error::Conflict(_)) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRIES {
+                        // Clean up uploaded segment on final failure
+                        let _ = self.delete_object_internal(&seg_key).await;
+                        return Err(Error::Conflict(format!(
+                            "Failed to write segment {} after {} retries due to manifest conflicts",
+                            descriptor.segment_id, MAX_RETRIES
+                        )));
+                    }
+                    warn!(
+                        "Manifest version conflict when writing segment {}, retry {}/{}",
+                        descriptor.segment_id, retry_count, MAX_RETRIES
+                    );
+                    // Exponential backoff
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        10 * 2_u64.pow(retry_count),
+                    ))
+                    .await;
+                    continue;
+                }
+                Err(e) => {
+                    // Clean up on other errors
+                    let _ = self.delete_object_internal(&seg_key).await;
+                    return Err(e);
+                }
+            }
+        }
     }
 
     /// Read segment data (vectors + optional metadata) from S3 using SEGv1 format
@@ -582,6 +631,46 @@ impl S3StorageBackend {
     /// Backward-compatible alias for `read_segment`
     pub async fn load_segment(&self, collection: &str, segment_id: Uuid) -> Result<SegmentData> {
         self.read_segment(collection, segment_id).await
+    }
+
+    /// Persist manifest with optimistic locking (version check)
+    ///
+    /// This method implements optimistic concurrency control by checking the expected
+    /// version against the current version in storage before persisting. If the versions
+    /// don't match, it returns a Conflict error, allowing the caller to retry with the
+    /// latest manifest.
+    ///
+    /// # Arguments
+    /// * `manifest` - The manifest to persist
+    /// * `expected_version` - The version we expect to find in storage
+    ///
+    /// # Returns
+    /// * `Ok(())` if the manifest was successfully persisted
+    /// * `Err(Error::Conflict)` if the version check failed (another update happened)
+    /// * `Err(...)` for other storage errors
+    async fn persist_manifest_with_check(
+        &self,
+        manifest: &CollectionManifest,
+        expected_version: u64,
+    ) -> Result<()> {
+        debug!(
+            "Persisting manifest for collection {} with version check (expected v{})",
+            manifest.collection, expected_version
+        );
+
+        // 1. Re-read current manifest from S3
+        let current = self.load_manifest(&manifest.collection).await?;
+
+        // 2. Version check
+        if current.latest_version != expected_version {
+            return Err(Error::Conflict(format!(
+                "Manifest version conflict for collection '{}': expected v{}, found v{}",
+                manifest.collection, expected_version, current.latest_version
+            )));
+        }
+
+        // 3. Persist with new version
+        self.persist_manifest(manifest).await
     }
 }
 
@@ -718,39 +807,78 @@ impl StorageBackend for S3StorageBackend {
             .await?
             .ok_or_else(|| Error::NotFound(format!("Segment {} not found", segment_id)))?;
 
-        // Load manifest and find segment entry
-        let mut manifest = self.load_manifest(&collection).await?;
-        let entry = manifest
-            .segments
-            .iter_mut()
-            .find(|seg| seg.segment_id == segment_id)
-            .ok_or_else(|| {
-                Error::NotFound(format!(
-                    "Segment {} not registered in manifest for collection {}",
-                    segment_id, collection
-                ))
-            })?;
+        // Retry loop for optimistic locking
+        const MAX_RETRIES: u32 = 10;
+        let mut retry_count = 0;
 
-        // Check if already sealed (idempotent operation)
-        if entry.state == SegmentState::Sealed {
-            debug!("Segment {} already sealed", segment_id);
-            let result = entry.clone();
-            return Ok(result);
+        loop {
+            let manifest = self.load_manifest(&collection).await?;
+            let original_version = manifest.latest_version;
+
+            let entry = manifest
+                .segments
+                .iter()
+                .find(|seg| seg.segment_id == segment_id)
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Segment {} not registered in manifest for collection {}",
+                        segment_id, collection
+                    ))
+                })?;
+
+            // Early return if already sealed (no version bump needed)
+            if entry.state == SegmentState::Sealed {
+                debug!("Segment {} already sealed", segment_id);
+                return Ok(entry.clone());
+            }
+
+            // Clone and modify
+            let mut updated_manifest = manifest.clone();
+            let entry_mut = updated_manifest
+                .segments
+                .iter_mut()
+                .find(|seg| seg.segment_id == segment_id)
+                .unwrap(); // Safe: we just found it above
+
+            entry_mut.state = SegmentState::Sealed;
+            let result = entry_mut.clone();
+
+            Self::bump_manifest_revision(&mut updated_manifest);
+
+            // Try to persist with version check
+            match self
+                .persist_manifest_with_check(&updated_manifest, original_version)
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        "Segment {} transitioned to sealed state for collection {}",
+                        segment_id, collection
+                    );
+                    return Ok(result);
+                }
+                Err(Error::Conflict(_)) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRIES {
+                        return Err(Error::Conflict(format!(
+                            "Failed to seal segment {} after {} retries due to manifest conflicts",
+                            segment_id, MAX_RETRIES
+                        )));
+                    }
+                    warn!(
+                        "Manifest version conflict when sealing segment {}, retry {}/{}",
+                        segment_id, retry_count, MAX_RETRIES
+                    );
+                    // Exponential backoff
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        10 * 2_u64.pow(retry_count),
+                    ))
+                    .await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
         }
-
-        // Update state in manifest
-        entry.state = SegmentState::Sealed;
-        let result = entry.clone();
-
-        // Persist updated manifest
-        Self::bump_manifest_revision(&mut manifest);
-        self.persist_manifest(&manifest).await?;
-
-        info!(
-            "Segment {} transitioned to sealed state for collection {}",
-            segment_id, collection
-        );
-        Ok(result)
     }
 
     async fn load_manifest(&self, collection: &str) -> Result<CollectionManifest> {
