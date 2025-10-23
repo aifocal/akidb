@@ -718,13 +718,7 @@ impl StorageBackend for S3StorageBackend {
             .await?
             .ok_or_else(|| Error::NotFound(format!("Segment {} not found", segment_id)))?;
 
-        let segment_key = self.segment_key(&collection, segment_id);
-        let bytes = self.get_object_internal(&segment_key).await?;
-
-        let mut descriptor: SegmentDescriptor = serde_json::from_slice(&bytes).map_err(|e| {
-            Error::Storage(format!("Failed to deserialize segment descriptor: {}", e))
-        })?;
-
+        // Load manifest and find segment entry
         let mut manifest = self.load_manifest(&collection).await?;
         let entry = manifest
             .segments
@@ -737,22 +731,18 @@ impl StorageBackend for S3StorageBackend {
                 ))
             })?;
 
-        let already_sealed =
-            entry.state == SegmentState::Sealed && descriptor.state == SegmentState::Sealed;
-
-        entry.state = SegmentState::Sealed;
-        descriptor.state = SegmentState::Sealed;
-
-        if already_sealed {
+        // Check if already sealed (idempotent operation)
+        if entry.state == SegmentState::Sealed {
             debug!("Segment {} already sealed", segment_id);
-            return Ok(descriptor);
+            let result = entry.clone();
+            return Ok(result);
         }
 
-        let data = serde_json::to_vec(&descriptor)
-            .map_err(|e| Error::Storage(format!("Failed to serialize sealed segment: {}", e)))?;
-        self.put_object_internal(&segment_key, Bytes::from(data))
-            .await?;
+        // Update state in manifest
+        entry.state = SegmentState::Sealed;
+        let result = entry.clone();
 
+        // Persist updated manifest
         Self::bump_manifest_revision(&mut manifest);
         self.persist_manifest(&manifest).await?;
 
@@ -760,7 +750,7 @@ impl StorageBackend for S3StorageBackend {
             "Segment {} transitioned to sealed state for collection {}",
             segment_id, collection
         );
-        Ok(descriptor)
+        Ok(result)
     }
 
     async fn load_manifest(&self, collection: &str) -> Result<CollectionManifest> {
@@ -989,5 +979,82 @@ mod tests {
 
         assert_eq!(recovered.vectors, vectors);
         assert!(recovered.metadata.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_seal_segment_with_segv1_format() {
+        let backend = test_backend();
+
+        // 1. Create collection
+        let collection = test_collection_descriptor("test_coll", 2);
+        backend.create_collection(&collection).await.unwrap();
+
+        // 2. Create segment descriptor
+        let segment_id = Uuid::new_v4();
+        let descriptor = test_segment_descriptor("test_coll", segment_id, 2, 2);
+
+        // 3. Write segment using SEGv1 format (write_segment_with_data)
+        let vectors = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+        backend
+            .write_segment_with_data(&descriptor, vectors.clone(), None)
+            .await
+            .unwrap();
+
+        // 4. Seal the segment (this should NOT try to read the segment file)
+        let sealed = backend.seal_segment(descriptor.segment_id).await.unwrap();
+
+        // 5. Verify sealed state
+        assert_eq!(sealed.state, SegmentState::Sealed);
+        assert_eq!(sealed.segment_id, descriptor.segment_id);
+
+        // 6. Verify manifest was updated
+        let manifest = backend.load_manifest("test_coll").await.unwrap();
+        let segment_entry = manifest
+            .segments
+            .iter()
+            .find(|s| s.segment_id == descriptor.segment_id)
+            .unwrap();
+        assert_eq!(segment_entry.state, SegmentState::Sealed);
+
+        // 7. Verify idempotency - sealing again should succeed
+        let sealed_again = backend.seal_segment(descriptor.segment_id).await.unwrap();
+        assert_eq!(sealed_again.state, SegmentState::Sealed);
+    }
+
+    #[tokio::test]
+    async fn test_seal_segment_idempotent() {
+        let backend = test_backend();
+
+        // 1. Create collection and segment
+        let collection = test_collection_descriptor("test_coll", 2);
+        backend.create_collection(&collection).await.unwrap();
+
+        let segment_id = Uuid::new_v4();
+        let descriptor = test_segment_descriptor("test_coll", segment_id, 2, 2);
+        let vectors = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+        backend
+            .write_segment_with_data(&descriptor, vectors, None)
+            .await
+            .unwrap();
+
+        // 2. Seal once
+        let manifest_v1 = backend.load_manifest("test_coll").await.unwrap();
+        let version_1 = manifest_v1.latest_version;
+
+        backend.seal_segment(descriptor.segment_id).await.unwrap();
+
+        let manifest_v2 = backend.load_manifest("test_coll").await.unwrap();
+        let version_2 = manifest_v2.latest_version;
+        assert!(version_2 > version_1, "Version should increment on first seal");
+
+        // 3. Seal again (idempotent) - should not increment version
+        backend.seal_segment(descriptor.segment_id).await.unwrap();
+
+        let manifest_v3 = backend.load_manifest("test_coll").await.unwrap();
+        let version_3 = manifest_v3.latest_version;
+        assert_eq!(
+            version_3, version_2,
+            "Version should NOT increment on idempotent seal"
+        );
     }
 }
