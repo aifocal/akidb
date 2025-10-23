@@ -194,6 +194,7 @@ impl CircuitBreaker {
 }
 
 /// S3 storage backend implementation
+#[derive(Clone)]
 pub struct S3StorageBackend {
     client: Arc<dyn ObjectStore>,
     config: S3Config,
@@ -1184,5 +1185,163 @@ mod tests {
             version_3, version_2,
             "Version should NOT increment on idempotent seal"
         );
+    }
+
+    /// Test concurrent write_segment_with_data operations
+    /// Verifies optimistic locking prevents lost updates
+    #[tokio::test]
+    async fn test_concurrent_write_segments() {
+        let backend = test_backend();
+
+        // Create collection
+        let collection = test_collection_descriptor("concurrent_test", 128);
+        backend.create_collection(&collection).await.unwrap();
+
+        // Spawn 10 concurrent writes
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let backend = backend.clone();
+                tokio::spawn(async move {
+                    let segment_id = Uuid::new_v4();
+                    let descriptor =
+                        test_segment_descriptor("concurrent_test", segment_id, 100, 128);
+                    let vectors: Vec<Vec<f32>> = (0..100).map(|_| vec![i as f32; 128]).collect();
+
+                    backend
+                        .write_segment_with_data(&descriptor, vectors, None)
+                        .await
+                })
+            })
+            .collect();
+
+        // Wait for all to complete
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Verify all 10 segments are in manifest
+        let manifest = backend.load_manifest("concurrent_test").await.unwrap();
+        assert_eq!(
+            manifest.segments.len(),
+            10,
+            "All 10 segments should be registered"
+        );
+        assert_eq!(
+            manifest.total_vectors, 1000,
+            "Total vectors should be 10 * 100"
+        );
+    }
+
+    /// Test concurrent seal_segment operations
+    /// Verifies optimistic locking handles concurrent seals correctly
+    #[tokio::test]
+    async fn test_concurrent_seal_operations() {
+        let backend = test_backend();
+
+        // Create collection and write 10 segments
+        let collection = test_collection_descriptor("seal_test", 128);
+        backend.create_collection(&collection).await.unwrap();
+
+        let segment_ids: Vec<Uuid> = (0..10).map(|_| Uuid::new_v4()).collect();
+
+        for &segment_id in &segment_ids {
+            let descriptor = test_segment_descriptor("seal_test", segment_id, 100, 128);
+            let vectors: Vec<Vec<f32>> = (0..100).map(|_| vec![0.0; 128]).collect();
+            backend
+                .write_segment_with_data(&descriptor, vectors, None)
+                .await
+                .unwrap();
+        }
+
+        // Seal all 10 concurrently
+        let handles: Vec<_> = segment_ids
+            .iter()
+            .map(|&segment_id| {
+                let backend = backend.clone();
+                tokio::spawn(async move { backend.seal_segment(segment_id).await })
+            })
+            .collect();
+
+        // Wait for all to complete
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Verify all are sealed
+        let manifest = backend.load_manifest("seal_test").await.unwrap();
+        for segment in &manifest.segments {
+            assert_eq!(
+                segment.state,
+                akidb_core::segment::SegmentState::Sealed,
+                "All segments should be sealed"
+            );
+        }
+    }
+
+    /// Test mixed concurrent operations (writes + seals)
+    /// Verifies optimistic locking handles complex concurrency scenarios
+    #[tokio::test]
+    async fn test_mixed_concurrent_operations() {
+        let backend = test_backend();
+        let collection = test_collection_descriptor("mixed_test", 128);
+        backend.create_collection(&collection).await.unwrap();
+
+        // Write 5 segments
+        let first_batch: Vec<Uuid> = (0..5).map(|_| Uuid::new_v4()).collect();
+
+        for &segment_id in &first_batch {
+            let descriptor = test_segment_descriptor("mixed_test", segment_id, 100, 128);
+            let vectors: Vec<Vec<f32>> = (0..100).map(|_| vec![0.0; 128]).collect();
+            backend
+                .write_segment_with_data(&descriptor, vectors, None)
+                .await
+                .unwrap();
+        }
+
+        // Concurrent: seal first 5 + write 5 new
+        let mut seal_handles = vec![];
+        let mut write_handles = vec![];
+
+        // Seal operations
+        for &segment_id in &first_batch {
+            let backend = backend.clone();
+            seal_handles.push(tokio::spawn(async move {
+                backend.seal_segment(segment_id).await
+            }));
+        }
+
+        // Write operations
+        for _ in 0..5 {
+            let backend = backend.clone();
+            write_handles.push(tokio::spawn(async move {
+                let segment_id = Uuid::new_v4();
+                let descriptor = test_segment_descriptor("mixed_test", segment_id, 100, 128);
+                let vectors: Vec<Vec<f32>> = (0..100).map(|_| vec![1.0; 128]).collect();
+                backend
+                    .write_segment_with_data(&descriptor, vectors, None)
+                    .await
+            }));
+        }
+
+        // Wait for seal operations
+        for handle in seal_handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Wait for write operations
+        for handle in write_handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Verify
+        let manifest = backend.load_manifest("mixed_test").await.unwrap();
+        assert_eq!(manifest.segments.len(), 10);
+
+        let sealed_count = manifest
+            .segments
+            .iter()
+            .filter(|s| s.state == akidb_core::segment::SegmentState::Sealed)
+            .count();
+        assert_eq!(sealed_count, 5, "First 5 should be sealed");
     }
 }
