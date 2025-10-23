@@ -20,6 +20,15 @@ pub trait StorageBackend: Send + Sync {
     async fn status(&self) -> Result<StorageStatus>;
     async fn create_collection(&self, descriptor: &CollectionDescriptor) -> Result<()>;
     async fn drop_collection(&self, name: &str) -> Result<()>;
+    /// Write a segment descriptor (metadata only)
+    ///
+    /// DEPRECATED: This method only persists the segment descriptor without vector data.
+    /// Use `write_segment_with_data` instead for complete segment persistence including
+    /// vectors and metadata. This method remains for backward compatibility but may be
+    /// removed in a future release.
+    ///
+    /// Migration path: Replace calls to `write_segment` followed by manual `put_object` calls
+    /// with a single `write_segment_with_data` call. See tmp/MIGRATION-PATH.md for details.
     async fn write_segment(&self, descriptor: &SegmentDescriptor) -> Result<()>;
     async fn seal_segment(&self, segment_id: Uuid) -> Result<SegmentDescriptor>;
     async fn load_manifest(&self, collection: &str) -> Result<CollectionManifest>;
