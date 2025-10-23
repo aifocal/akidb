@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -10,6 +11,24 @@ use uuid::Uuid;
 use akidb_core::{CollectionDescriptor, CollectionManifest, Result, SegmentDescriptor};
 
 use crate::backend::{StorageBackend, StorageStatus};
+use crate::segment_format::SegmentData;
+
+/// Simplified payload format for memory backend testing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemorySegmentPayload {
+    version: u8,
+    dimension: u32,
+    vectors: Vec<Vec<f32>>,
+    metadata: Option<MemoryMetadataPayload>,
+}
+
+/// Metadata payload for memory backend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryMetadataPayload {
+    format: String,      // "arrow-ipc"
+    compression: String, // "none" or "zstd"
+    data: Vec<u8>,      // Raw Arrow IPC bytes
+}
 
 /// In-memory storage backend (for testing)
 #[derive(Clone)]
@@ -22,6 +41,13 @@ impl MemoryStorageBackend {
         Self {
             objects: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Helper to bump manifest version (mirrors S3StorageBackend)
+    fn bump_manifest_revision(manifest: &mut CollectionManifest) {
+        manifest.latest_version += 1;
+        manifest.epoch += 1;
+        manifest.updated_at = chrono::Utc::now();
     }
 }
 
@@ -191,12 +217,110 @@ impl StorageBackend for MemoryStorageBackend {
 
     async fn write_segment_with_data(
         &self,
-        _descriptor: &SegmentDescriptor,
-        _vectors: Vec<Vec<f32>>,
-        _metadata: Option<crate::metadata::MetadataBlock>,
+        descriptor: &SegmentDescriptor,
+        vectors: Vec<Vec<f32>>,
+        metadata: Option<crate::metadata::MetadataBlock>,
     ) -> Result<()> {
-        // No-op for in-memory testing backend
-        // In real usage, this would serialize the segment with metadata
+        // 1. Load manifest and validate existence/dimension
+        let mut manifest = self.load_manifest(&descriptor.collection).await?;
+
+        // Validate collection exists (manifest with created_at != None)
+        if manifest.created_at.is_none() {
+            return Err(akidb_core::Error::Validation(format!(
+                "Collection {} does not exist",
+                descriptor.collection
+            )));
+        }
+
+        // Validate dimension compatibility
+        if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
+            return Err(akidb_core::Error::Validation(format!(
+                "Dimension mismatch: manifest has {}, descriptor has {}",
+                manifest.dimension, descriptor.vector_dim
+            )));
+        }
+
+        // 2. Run duplicate check
+        if manifest
+            .segments
+            .iter()
+            .any(|s| s.segment_id == descriptor.segment_id)
+        {
+            return Err(akidb_core::Error::Conflict(format!(
+                "Segment {} already exists in collection {}",
+                descriptor.segment_id, descriptor.collection
+            )));
+        }
+
+        // 3. Validate vector count
+        if vectors.len() != descriptor.record_count as usize {
+            return Err(akidb_core::Error::Validation(format!(
+                "Vector count mismatch: descriptor says {}, got {}",
+                descriptor.record_count,
+                vectors.len()
+            )));
+        }
+
+        // 4. Build SegmentData for validation (dimension and metadata row count)
+        let _segment_data = if let Some(ref meta) = metadata {
+            SegmentData::with_metadata(
+                descriptor.vector_dim as u32,
+                vectors.clone(),
+                meta.clone(),
+            )?
+        } else {
+            SegmentData::new(descriptor.vector_dim as u32, vectors.clone())?
+        };
+
+        // 5. Serialize MemorySegmentPayload
+        let payload = if let Some(meta) = metadata {
+            let meta_bytes = meta
+                .serialize()
+                .map_err(|e| akidb_core::Error::Storage(format!("Metadata serialization failed: {}", e)))?;
+            MemorySegmentPayload {
+                version: 1,
+                dimension: descriptor.vector_dim as u32,
+                vectors,
+                metadata: Some(MemoryMetadataPayload {
+                    format: "arrow-ipc".to_string(),
+                    compression: "none".to_string(),
+                    data: meta_bytes,
+                }),
+            }
+        } else {
+            MemorySegmentPayload {
+                version: 1,
+                dimension: descriptor.vector_dim as u32,
+                vectors,
+                metadata: None,
+            }
+        };
+
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|e| akidb_core::Error::Storage(format!("Failed to serialize payload: {}", e)))?;
+
+        // 6. Store payload via put_object
+        let seg_key = format!(
+            "collections/{}/segments/{}.seg",
+            descriptor.collection, descriptor.segment_id
+        );
+        self.put_object(&seg_key, Bytes::from(payload_bytes))
+            .await?;
+
+        // 7. Call existing write_segment to persist descriptor JSON
+        self.write_segment(descriptor).await?;
+
+        // 8. Update manifest
+        manifest.segments.push(descriptor.clone());
+        manifest.total_vectors += descriptor.record_count as u64;
+        if manifest.dimension == 0 {
+            manifest.dimension = descriptor.vector_dim as u32;
+        }
+        Self::bump_manifest_revision(&mut manifest);
+
+        // 9. Persist manifest
+        self.persist_manifest(&manifest).await?;
+
         Ok(())
     }
 }
