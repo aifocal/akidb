@@ -3,170 +3,121 @@
 [![CI](https://github.com/defai-digital/akidb/workflows/CI/badge.svg)](https://github.com/defai-digital/akidb/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**The S3-Native Vector Database for the AI Era**
+**AkiDB: The S3-Native Vector Database for the AI Era.**
 
-AkiDB is a high-performance distributed vector database built from the ground up for S3-compatible storage, written in Rust. It's designed to make vector search affordable, simple, and scalable for AI/ML applications.
-
----
-
-## 🎯 Why AkiDB Matters
-
-### The Vector Database Challenge
-
-In the age of AI, **vector databases have become critical infrastructure**. Every AI application—from semantic search to RAG systems to recommendation engines—needs efficient similarity search over high-dimensional embeddings. But current solutions present significant challenges:
-
-**📈 Explosive Costs**
-- Managed services like Pinecone can cost **$70-200+/month** for basic workloads
-- Costs scale rapidly with data volume and query throughput
-- Unpredictable pricing makes budgeting difficult
-
-**🔒 Vendor Lock-in**
-- Proprietary APIs and formats trap you in specific platforms
-- Migration between providers is painful and risky
-- Limited control over your data and infrastructure
-
-**⚙️ Operational Complexity**
-- Self-hosted solutions like Milvus require extensive Kubernetes knowledge
-- Managing stateful services, backups, and scaling is time-consuming
-- Development teams spend more time on ops than building features
-
-### The AkiDB Solution
-
-AkiDB takes a radically different approach: **leverage S3 as the storage layer**. This simple architectural decision unlocks massive benefits:
-
-✅ **80%+ Cost Reduction** - S3 storage is $0.023/GB vs in-memory/SSD solutions
-✅ **Zero Operational Overhead** - No stateful services, no complex clusters
-✅ **Infinite Scalability** - S3 scales automatically to any size
-✅ **Automatic Durability** - 99.999999999% durability built-in
-✅ **No Vendor Lock-in** - Works with any S3-compatible storage (AWS, GCS, MinIO, Cloudflare R2)
+AkiDB is a high-performance, open-source vector database built from the ground up for S3-compatible storage. Written in Rust, it's designed to make vector search affordable, simple, and scalable for modern AI applications.
 
 ---
 
-## 💎 Core Value Proposition
+## 1. Why AkiDB Matters
 
-### 1. True S3-Native Architecture
+In the age of AI, **vector databases are critical infrastructure**. Every AI application—from semantic search to RAG systems to recommendation engines—relies on efficient similarity search over high-dimensional embeddings.
 
-Unlike databases that bolt on S3 as a backup tier, AkiDB is **designed for S3 from day one**:
+However, existing solutions force a difficult choice:
 
-- **SEGv1 Binary Format**: Custom format optimized for S3 with ~60% Zstd compression
-- **Zero Hot Storage**: No expensive EBS volumes or local SSDs required
-- **Immutable Segments**: Leverage S3's strengths, avoid its weaknesses
-- **Intelligent Caching**: Smart prefetching keeps queries fast
+*   **Managed Services (e.g., Pinecone):** Convenient but expensive, with costs that scale unpredictably. They create vendor lock-in with proprietary APIs and give you little control over your own data.
+*   **Self-Hosted Solutions (e.g., Milvus, Weaviate):** Open-source but notoriously complex. They require extensive Kubernetes knowledge and a fleet of microservices (like etcd, MinIO), turning database management into a full-time job.
 
-**Cost Example**: Storing 10M vectors (768-dim) costs:
-- Pinecone: ~$200-400/month
-- AkiDB on S3: ~$15/month (storage) + compute
+**AkiDB offers a third way.** By embracing a **true S3-native architecture**, we solve the core problems of cost and complexity.
 
-### 2. Open Source Freedom
+## 2. Core Value Proposition
 
-```rust
-// Your data, your infrastructure, your control
-let storage = S3StorageBackend::new(S3Config {
-    bucket: "my-vectors",
-    endpoint: "https://s3.amazonaws.com", // or any S3-compatible service
-    ..Default::default()
-});
-```
+AkiDB's design philosophy is simple: use the right tool for the job. For durable, scalable, and cost-effective storage, nothing beats object storage like S3.
 
-- **MIT License**: Use commercially without restrictions
-- **No Telemetry**: Your data stays yours
-- **Community-Driven**: Roadmap shaped by real users, not vendor interests
-- **Full Transparency**: Audit every line of code
+#### ✅ **80%+ Cost Reduction**
+AkiDB leverages S3 as its primary storage layer. Instead of paying for expensive, always-on block storage or memory, you pay S3's low commodity rates ($0.023/GB). This fundamentally changes the cost equation for large-scale vector search.
 
-### 3. Rust Performance & Safety
+*   **Example:** Storing 10 million `text-embedding-ada-002` vectors (1536-dim) costs:
+    *   **Pinecone (p1.x1 pod):** ~$70/month
+    *   **AkiDB on S3:** ~$1.50/month (storage) + stateless compute
 
-Written in Rust for the trifecta of performance, safety, and concurrency:
+#### ✅ **Radical Simplicity**
+Our architecture consists of two components: a **stateless API server** and an **S3 bucket**. That's it.
+*   **No Raft Consensus:** We offload state management to S3, eliminating the need for complex coordination protocols.
+*   **No Sidecars:** No need to manage separate clusters for etcd, MinIO, or message queues.
+*   **Deploy in Minutes:** A single Docker container is all you need to get started.
 
-- **Memory-Safe**: Zero buffer overflows or data races
-- **Blazingly Fast**: 2ms to serialize 1000×128 vectors
-- **Efficient**: Minimal CPU and memory footprint
-- **Reliable**: Compile-time guarantees prevent entire classes of bugs
+#### ✅ **Open Source & No Vendor Lock-in**
+AkiDB is MIT licensed. Your data, your infrastructure, your control.
+*   **Use Any S3 Provider:** AWS S3, Google Cloud Storage, Cloudflare R2, MinIO.
+*   **Transparent:** Audit every line of code. The roadmap is shaped by the community.
 
-### 4. Operationally Simple
+#### ✅ **Performance & Safety in Rust**
+Built in Rust, AkiDB provides the trifecta of performance, memory safety, and fearless concurrency. This means fewer bugs, predictable performance, and a smaller operational footprint.
 
-Deploy in minutes, not days:
+#### ✅ **Composable Architecture**
+AkiDB's plugin-based design lets you choose your own:
+*   **Index Provider:** Native brute-force, HNSW, or bring your own (FAISS, etc.)
+*   **Storage Backend:** S3, Google Cloud Storage, Cloudflare R2, or MinIO
+*   **Clear Trait Abstractions:** Easy to understand, extend, and customize
 
-```bash
-# That's it. No Kubernetes, no Kafka, no ZooKeeper.
-docker compose up -d
-```
-
-- **Stateless Design**: API servers are fully stateless and horizontally scalable
-- **No Coordination Overhead**: No consensus protocols or distributed state
-- **Easy Backups**: S3 versioning and replication built-in
-- **Predictable Performance**: No GC pauses or compaction stalls
+This prevents vendor lock-in and allows seamless integration with your existing infrastructure.
 
 ---
 
-## 🎯 Who Should Use AkiDB?
+## 3. Who Should Use AkiDB?
 
-### AI/ML Engineers
-Build RAG systems, semantic search, or vector-based features without worrying about database costs or complexity.
+AkiDB is designed for teams who value **simplicity, cost-efficiency, and control**:
 
-### Cost-Conscious Startups
-Launch with confidence knowing your vector database costs scale linearly with usage, not exponentially.
+### Primary Audience
+*   **AI Application Builders** 🤖
+    - Building RAG systems, semantic search, or recommendation engines
+    - Need vector search but don't want to become database administrators
+    - Using Python/TypeScript/Rust tech stacks on AWS/GCP/Azure
 
-### Enterprises
-Maintain full control over sensitive embedding data with self-hosted deployment on your own infrastructure.
+*   **Cost-Conscious Startups** 💰
+    - Scaling AI products without exponential infrastructure costs
+    - Budget-conscious teams ($100-$1000/month range)
+    - Want predictable pricing based on S3 storage + compute
 
-### Data-Intensive Applications
-Handle billions of vectors without breaking the bank or your ops team.
+### Secondary Audience
+*   **Rust Enthusiasts** 🦀
+    - Building high-performance systems in Rust
+    - Need embedded vector search without FFI overhead
+    - Value type safety and zero-cost abstractions
+
+*   **Enterprise Teams** 🏢
+    - Require full data sovereignty and control
+    - Need customizable, composable architectures
+    - Deploy on private infrastructure or multi-cloud environments
 
 ---
 
-## 📊 How AkiDB Compares
+## 4. Competitive Advantage
 
-| Feature | AkiDB | Pinecone | Weaviate | Milvus | Qdrant |
-|---------|-------|----------|----------|--------|--------|
-| **Architecture** | S3-native | Managed SaaS | Self-hosted | Self-hosted | Self-hosted |
-| **Storage Cost** | $0.023/GB | $0.50-1.00/GB | EBS/SSD | EBS/SSD | EBS/SSD |
-| **Deployment** | Single binary | N/A | Docker/K8s | K8s required | Docker/K8s |
-| **Vendor Lock-in** | None | High | Low | Low | Low |
-| **Stateful Services** | 0 | N/A | 1+ | 5+ (etcd, minio, etc) | 1+ |
-| **Open Source** | ✅ MIT | ❌ | ✅ BSD | ✅ Apache | ✅ Apache |
-| **Language** | Rust | N/A | Go | C++/Python | Rust |
-| **Backup Strategy** | S3 built-in | Managed | Manual | Manual | Manual |
-
-### When to Choose AkiDB
-
-✅ **Cost is a concern** (saves 80%+ vs managed services)
-✅ **You value operational simplicity** (no K8s required)
-✅ **You need full control** (self-hosted, open source)
-✅ **You're already using S3** (leverages existing infrastructure)
-✅ **You want predictable scaling** (S3 scales automatically)
-
-### When to Choose Alternatives
-
-❌ **Ultra-low latency requirements** (<10ms p99) - In-memory solutions are faster
-❌ **Extremely high write throughput** (>100k writes/sec) - Purpose-built solutions may be better
-❌ **You need managed service** - Consider Pinecone or cloud-native options
+| Feature                | AkiDB (S3-Native)                               | Pinecone (Managed)      | Weaviate / Qdrant (Self-Hosted) | Milvus (Self-Hosted)                  |
+| ---------------------- | ----------------------------------------------- | ----------------------- | ------------------------------- | ------------------------------------- |
+| **Architecture**       | **Stateless API + S3**                          | Managed SaaS            | Stateful Node + Raft            | Microservices Cluster                 |
+| **Storage Cost**       | **$0.023/GB** (S3)                              | ~$0.77/GB (p1 pod)      | ~$0.10/GB (EBS)                 | ~$0.10/GB (EBS)                       |
+| **Deployment**         | **Single Docker Container**                     | N/A                     | Docker / K8s                    | **K8s Required** (etcd, MinIO, etc.)  |
+| **Vendor Lock-in**     | **None (MIT)**                                  | High                    | Low (BSD/Apache)                | Low (Apache)                          |
+| **Operational Burden** | **Minimal**                                     | None                    | Moderate                        | **High**                              |
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
+- Rust 1.77+
+- Docker and Docker Compose
 
-- Rust 1.77 or later
-- Docker and Docker Compose (for local development)
+### Run Locally
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/defai-digital/akidb.git
+    cd akidb
+    ```
 
-### Installation
+2.  **Start the development environment:**
+    This command starts a local MinIO container for S3 storage and the AkiDB API server.
+    ```bash
+    ./scripts/dev-init.sh
+    ```
+    The API is now available at `http://localhost:8080`.
 
-```bash
-# Clone the repository
-git clone https://github.com/defai-digital/akidb.git
-cd akidb
-
-# Start development environment (MinIO + AkiDB)
-./scripts/dev-init.sh
-```
-
-The API server will be available at `http://localhost:8080`.
-
-### Your First Vectors
+### API Examples
 
 #### 1. Create a Collection
-
 ```bash
 curl -X POST http://localhost:8080/collections \
   -H "Content-Type: application/json" \
@@ -178,7 +129,6 @@ curl -X POST http://localhost:8080/collections \
 ```
 
 #### 2. Insert Vectors
-
 ```bash
 curl -X POST http://localhost:8080/collections/product_embeddings/vectors \
   -H "Content-Type: application/json" \
@@ -186,24 +136,19 @@ curl -X POST http://localhost:8080/collections/product_embeddings/vectors \
     "vectors": [
       {
         "id": "product_1",
-        "vector": [0.1, 0.2, 0.3, ...],
-        "payload": {
-          "name": "Laptop",
-          "category": "Electronics",
-          "price": 999.99
-        }
+        "vector": [0.1, 0.2, ...],
+        "payload": { "name": "Laptop", "price": 999.99 }
       }
     ]
   }'
 ```
 
 #### 3. Search
-
 ```bash
 curl -X POST http://localhost:8080/collections/product_embeddings/search \
   -H "Content-Type: application/json" \
   -d '{
-    "vector": [0.1, 0.2, 0.3, ...],
+    "vector": [0.1, 0.2, ...],
     "top_k": 10
   }'
 ```
@@ -212,262 +157,96 @@ curl -X POST http://localhost:8080/collections/product_embeddings/search \
 
 ## 🏗️ Architecture
 
-AkiDB uses a clean, layered architecture:
+AkiDB uses a clean, layered architecture designed for simplicity and performance.
 
 ```
 ┌─────────────────────────────────────────┐
 │         REST API (Axum)                 │  ← Stateless, horizontally scalable
 ├─────────────────────────────────────────┤
-│   Query Layer (Planner/Executor)        │  ← Query optimization
+│   Query Layer (Planner/Executor)        │  ← Query optimization & filtering
 ├─────────────────────────────────────────┤
-│     Index Layer (HNSW/Native)           │  ← Approximate nearest neighbor
+│     Index Layer (HNSW)                  │  ← In-memory ANN search
 ├─────────────────────────────────────────┤
-│ Storage Layer (S3/WAL/SEGv1 Format)     │  ← S3-native persistence
+│ Storage Layer (WAL / Segments / S3)     │  ← S3-native persistence & recovery
 ├─────────────────────────────────────────┤
-│    Core Types (Collection/Segment)      │  ← Domain models
+│    Core Types (Collection/Manifest)     │  ← Domain models
 └─────────────────────────────────────────┘
 ```
 
-### Key Components
-
-- **akidb-core**: Core data types and schemas (collections, segments, manifests)
-- **akidb-storage**: S3 storage backend with WAL and SEGv1 binary format
-- **akidb-index**: HNSW index implementation for fast similarity search
-- **akidb-query**: Query planning and execution engine
-- **akidb-api**: REST API server with validation and middleware
-- **akidb-mcp**: Cluster management and coordination (planned)
-
-### SEGv1 Binary Format
-
-Efficient, versioned format for vector storage:
-
-```
-┌─────────────────────────────────────────┐
-│ Header (64 bytes)                       │
-│ - Magic: b"SEGv"                        │
-│ - Version, dimension, vector count      │
-│ - Offsets for future extensibility      │
-├─────────────────────────────────────────┤
-│ Vector Data Block                       │
-│ - Zstd compressed (~60% ratio)          │
-│ - Fast decompression (<10ms/1000 vecs)  │
-├─────────────────────────────────────────┤
-│ Footer (32 bytes)                       │
-│ - XXH3/CRC32C checksum                  │
-│ - Data integrity validation             │
-└─────────────────────────────────────────┘
-```
-
-Benefits:
-- **Compact**: 60% smaller than raw floats
-- **Fast**: Optimized for S3 access patterns
-- **Safe**: Checksum validation prevents corruption
-- **Extensible**: Offsets allow future additions (metadata, bitmaps, HNSW)
+The key innovation is in the **Storage Layer**. Data is written to a Write-Ahead Log (WAL) for durability and buffered. Once a certain size is reached, vectors are compressed into an immutable **Segment** file and uploaded to S3. The WAL is then truncated. This design combines the low latency of local writes with the cost-effectiveness and durability of S3.
 
 ---
 
-## 📈 Performance
+## 📈 Project Status & Roadmap
 
-Benchmarks on Apple Silicon (M1/M2):
+### 🔄 **Current Status: Active Development**
 
-| Operation | Vectors | Dimensions | Time | Notes |
-|-----------|---------|------------|------|-------|
-| SEGv1 Serialize | 1,000 | 128 | 2ms | With Zstd compression |
-| SEGv1 Serialize | 1,000 | 768 | 10ms | OpenAI embedding size |
-| SEGv1 Serialize | 10,000 | 128 | 20ms | Scales linearly |
-| API Insert | 500 | 128 | <100ms | End-to-end latency |
-| Compression Ratio | - | - | ~60% | Zstd level 3 |
+**What's Working**:
+- ✅ Core architecture and trait abstractions (StorageBackend, IndexProvider)
+- ✅ S3 storage integration with object_store crate
+- ✅ Development environment (Docker + MinIO)
+- ✅ Basic API endpoints (collections, insert, search)
+- ✅ 21 tests passing (validation, bootstrap, e2e flows)
 
-### Real-World Performance
+**In Progress** (Phase 3 M2):
+- 🔄 S3 Storage Backend - Full implementation of core methods
+- 🔄 WAL Operations - Crash-safe append/replay
+- 🔄 Index Provider - Wire native index to storage layer
+- 🔄 Production readiness - Integration tests and observability
 
-- **Throughput**: 10,000+ inserts/second (single node)
-- **Query Latency**: <50ms p99 for top-10 queries
-- **Storage Efficiency**: 3-5x better than uncompressed
+### ⏳ **Phase 3: Core Implementation (In Progress)**
+- **Goal:** Complete storage, WAL, and index implementation
+- **Key Milestones:**
+    - M1: ✅ Benchmark harness and baseline metrics
+    - M2: 🔄 S3 backend + WAL + Index provider (current)
+    - M3: Query planner optimizations
+    - M4: Production monitoring and observability
 
----
+### 🚀 **Phase 4: Cloud-Native Differentiation (Q1 2025)**
+- **Goal:** Establish competitive advantages in cloud-native vector search
+- **Key Initiatives:**
+    - **S3 Optimization Layer:** Smart caching, S3 Select integration, lifecycle management
+    - **Distributed Query (MVP):** Basic sharding and query routing for 10M+ vectors
+    - **Zero-Ops Deployment:** Terraform modules, Kubernetes Helm charts, one-click AWS/GCP deployment
+    - **Rust SDK & Ecosystem:** LangChain, LlamaIndex, Hugging Face integrations
 
-## 🛣️ Roadmap
-
-### Phase 1 (v0.1.0) ✅ Complete
-- [x] Core types and schemas
-- [x] S3 storage backend with circuit breaker
-- [x] SEGv1 binary format with compression
-- [x] WAL implementation
-- [x] REST API (7 endpoints)
-- [x] E2E test suite (44 tests passing)
-
-### Phase 2 (v0.2.0) - Q1 2025
-- [ ] Metadata block (Arrow IPC format)
-- [ ] Bitmap index (Roaring bitmaps)
-- [ ] HNSW graph persistence
-- [ ] Query filters and pagination
-- [ ] Multipart upload for large segments
-- [ ] Performance optimizations (streaming, parallel compression)
-
-### Phase 3 (v0.3.0) - Q2 2025
-- [ ] Distributed coordination (Raft consensus)
-- [ ] Automatic replication and sharding
-- [ ] gRPC API
-- [ ] Advanced index types (IVF, PQ)
-- [ ] Query result caching
-- [ ] Monitoring and observability
-
----
-
-## 🧪 API Reference
-
-### Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/collections` | List all collections |
-| POST | `/collections` | Create a collection |
-| GET | `/collections/:name` | Get collection info |
-| DELETE | `/collections/:name` | Delete a collection |
-| POST | `/collections/:name/vectors` | Insert vectors |
-| POST | `/collections/:name/search` | Search similar vectors |
-
-### Distance Metrics
-
-- **Cosine**: Measures angle between vectors (default, best for normalized embeddings)
-- **L2**: Euclidean distance (good for spatial data)
-- **Dot**: Inner product (fast, assumes normalized vectors)
-
----
-
-## 🔧 Configuration
-
-Copy `.env.example` to `.env`:
-
-```bash
-# API Server
-AKIDB_API_PORT=8080
-
-# S3 Configuration
-MINIO_ENDPOINT=http://localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET=akidb
-
-# Optional: AWS S3
-# AWS_REGION=us-east-1
-# AWS_ACCESS_KEY_ID=your_key
-# AWS_SECRET_ACCESS_KEY=your_secret
-```
+### 🌐 **Phase 5: Scale & Enterprise (Q2 2025+)**
+- **Goal:** Production-grade features for enterprise adoption
+- **Key Initiatives:**
+    - Multi-tenancy and RBAC
+    - Hybrid search (vectors + metadata filtering)
+    - Multi-language clients (Python, TypeScript, Go)
+    - Advanced observability with OpenTelemetry
 
 ---
 
 ## 🧑‍💻 Development
 
 ### Running Tests
-
 ```bash
-# All tests
+# Run all workspace tests
 cargo test --workspace
 
-# Specific package
-cargo test -p akidb-storage
-
-# With logging
-RUST_LOG=debug cargo test
-
-# Integration tests (requires MinIO)
-docker compose up -d
+# Run integration tests (requires Docker environment)
+./scripts/dev-init.sh
 cargo test --workspace -- --include-ignored
 ```
 
-### Building
-
-```bash
-# Development
-cargo build --workspace
-
-# Release (optimized)
-cargo build --workspace --release
-
-# Or use the build script
-./scripts/build-release.sh
-```
-
 ### Code Quality
-
 ```bash
 # Format
 cargo fmt --all
 
 # Lint
 cargo clippy --all-targets --all-features --workspace -- -D warnings
-
-# Run all checks
-./scripts/dev-test.sh
 ```
-
----
-
-## 📚 Documentation
-
-- [Development Setup](docs/development-setup.md) - Detailed setup instructions
-- [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
-- [CLAUDE.md](CLAUDE.md) - AI assistant integration guide
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether it's:
-
-- 🐛 Bug reports
-- 💡 Feature requests
-- 📝 Documentation improvements
-- 🔧 Code contributions
-
-Please read our [Contributing Guide](docs/CONTRIBUTING.md) to get started.
-
----
-
-## 📊 Project Status
-
-- **Version**: v0.1.0 (Phase 1 Complete)
-- **Tests**: 44/44 passing
-- **Code Quality**: 0 Clippy warnings
-- **License**: MIT
-- **Language**: Rust
-
----
-
-## 🙏 Acknowledgments
-
-Built with excellent open-source libraries:
-
-- [Axum](https://github.com/tokio-rs/axum) - Web framework
-- [object_store](https://github.com/apache/arrow-rs/tree/master/object_store) - S3 abstraction
-- [Zstd](https://facebook.github.io/zstd/) - Compression
-- [xxHash](https://github.com/Cyan4973/xxHash) - Fast hashing
-- [Tokio](https://tokio.rs/) - Async runtime
-
----
+We welcome contributions of all kinds! Please read our [Contributing Guide](docs/CONTRIBUTING.md) to get started.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## 🔗 Links
-
-- **GitHub**: https://github.com/defai-digital/akidb
-- **Issues**: https://github.com/defai-digital/akidb/issues
-- **Releases**: https://github.com/defai-digital/akidb/releases
-
----
-
-<div align="center">
-
-**Ready to build your AI application without breaking the bank?**
-
-[Get Started](#-quick-start) • [View Docs](#-documentation) • [Join Community](https://github.com/defai-digital/akidb/discussions)
-
-Built with ❤️ in Rust
-
-</div>
+AkiDB is licensed under the [MIT License](LICENSE).
