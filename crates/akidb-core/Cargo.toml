@@ -7,6 +7,7 @@ edition = "2021"
 # arrow = { workspace = true }  # TODO: Re-enable when implementing SEGv1 format (resolve chrono compatibility)
 bytes = { workspace = true }
 chrono = { workspace = true }
+config = { workspace = true }
 roaring = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

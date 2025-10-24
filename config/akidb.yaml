@@ -1,0 +1,187 @@
+# AkiDB Configuration File
+# All values shown are defaults and can be overridden by environment variables
+# Environment variable format: AKIDB_<SECTION>__<SUBSECTION>__<KEY>
+# Example: AKIDB_STORAGE__RETRY__MAX_ATTEMPTS=20
+
+---
+# Storage Backend Configuration
+storage:
+  # Circuit Breaker Configuration
+  # Protects against cascading failures in S3 operations
+  circuit_breaker:
+    # Number of consecutive failures before opening the circuit
+    # Higher = more tolerant of transient failures
+    # Lower = faster failure detection
+    failure_threshold: 5
+
+    # Seconds to wait before attempting recovery (half-open state)
+    # Higher = longer recovery period
+    # Lower = faster recovery attempts
+    recovery_timeout_secs: 30
+
+  # Retry Configuration for Standard Operations
+  retry:
+    # Maximum number of retry attempts
+    max_attempts: 10
+
+    # Initial backoff delay in milliseconds
+    initial_backoff_ms: 100
+
+    # Maximum backoff delay in milliseconds
+    max_backoff_ms: 5000
+
+    # Backoff multiplier for exponential backoff
+    backoff_multiplier: 2.0
+
+  # Retry Configuration for Critical Manifest Operations
+  # Uses more aggressive retries for critical path
+  manifest_retry:
+    max_attempts: 20
+    initial_backoff_ms: 50
+    max_backoff_ms: 2000
+    backoff_multiplier: 2.0
+
+# Index Provider Configuration
+index:
+  # HNSW (Hierarchical Navigable Small World) Configuration
+  # High-performance approximate nearest neighbor search
+  hnsw:
+    # M: Maximum number of connections per layer
+    # Typical range: 12-48
+    # Higher M = better recall, more memory, slower build
+    # Lower M = faster build, less memory, lower recall
+    m: 16
+
+    # efConstruction: Search width during index building
+    # Typical range: 100-800
+    # Higher = better quality index, slower build
+    # Lower = faster build, lower quality
+    ef_construction: 400
+
+    # efSearch: Search width during queries
+    # Typical range: 50-400
+    # Higher = better recall, slower search
+    # Lower = faster search, lower recall
+    # Note: Can be overridden per-query
+    ef_search: 200
+
+    # Minimum number of vectors to use HNSW
+    # Below this threshold, brute force search is used
+    min_vectors_threshold: 100
+
+  # Native (Brute Force) Configuration
+  native:
+    # Maximum vectors before recommending HNSW
+    # This is just a warning threshold, not enforced
+    max_vectors: 10000
+
+# API Configuration
+api:
+  # Validation Limits
+  validation:
+    # Maximum collection name length (characters)
+    collection_name_max_length: 255
+
+    # Vector dimension limits
+    vector_dimension_max: 4096
+    vector_dimension_min: 1
+
+    # top_k limits (number of results to return)
+    top_k_max: 1000
+    top_k_min: 1
+
+    # Maximum batch size for bulk operations
+    batch_size_max: 1000
+
+# Query Engine Configuration
+query:
+  # Maximum filter nesting depth
+  # Prevents stack overflow from deeply nested filters
+  max_filter_depth: 32
+
+  # Maximum number of filter clauses
+  # Prevents excessive memory usage
+  max_filter_clauses: 100
+
+  # Enable parallel segment scanning
+  # true = faster queries on multi-core systems
+  # false = sequential scanning (lower memory)
+  parallel_segments: true
+
+  # Maximum number of segments to scan in parallel
+  # Only used if parallel_segments = true
+  max_parallel_segments: 8
+
+# ============================================================================
+# Environment-Specific Configuration Examples
+# ============================================================================
+
+# Development Environment (fast feedback, less strict)
+# storage:
+#   circuit_breaker:
+#     failure_threshold: 3
+#     recovery_timeout_secs: 10
+#   retry:
+#     max_attempts: 3
+
+# Staging Environment (production-like, with debugging)
+# storage:
+#   retry:
+#     max_attempts: 15
+# query:
+#   max_parallel_segments: 4
+
+# Production Environment (high reliability, performance)
+# storage:
+#   circuit_breaker:
+#     failure_threshold: 10
+#     recovery_timeout_secs: 60
+#   retry:
+#     max_attempts: 20
+# index:
+#   hnsw:
+#     m: 32
+#     ef_construction: 800
+#     ef_search: 400
+
+# ============================================================================
+# Performance Tuning Examples
+# ============================================================================
+
+# High Recall Configuration (prioritize accuracy)
+# index:
+#   hnsw:
+#     m: 32
+#     ef_construction: 800
+#     ef_search: 400
+
+# Fast Search Configuration (prioritize speed)
+# index:
+#   hnsw:
+#     m: 12
+#     ef_construction: 200
+#     ef_search: 100
+
+# Balanced Configuration (default, good for most cases)
+# index:
+#   hnsw:
+#     m: 16
+#     ef_construction: 400
+#     ef_search: 200
+
+# ============================================================================
+# Environment Variable Override Examples
+# ============================================================================
+
+# Set circuit breaker threshold:
+# export AKIDB_STORAGE__CIRCUIT_BREAKER__FAILURE_THRESHOLD=10
+
+# Set HNSW parameters:
+# export AKIDB_INDEX__HNSW__M=32
+# export AKIDB_INDEX__HNSW__EF_CONSTRUCTION=800
+
+# Set validation limits:
+# export AKIDB_API__VALIDATION__TOP_K_MAX=2000
+
+# Use custom config file:
+# export AKIDB_CONFIG=/path/to/custom-config.yaml

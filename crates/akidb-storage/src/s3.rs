@@ -14,7 +14,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use akidb_core::{
-    CollectionDescriptor, CollectionManifest, Error, Result, SegmentDescriptor, SegmentState,
+    CircuitBreakerConfig, CollectionDescriptor, CollectionManifest, Error, Result,
+    SegmentDescriptor, SegmentState,
 };
 
 use crate::backend::{StorageBackend, StorageStatus};
@@ -44,6 +45,8 @@ pub struct S3Config {
     pub part_size: usize,
     /// Retry configuration
     pub retry_config: RetryConfig,
+    /// Circuit breaker configuration (optional, uses defaults if not provided)
+    pub circuit_breaker_config: Option<CircuitBreakerConfig>,
 }
 
 impl Default for S3Config {
@@ -58,6 +61,7 @@ impl Default for S3Config {
             multipart_threshold: 64 * 1024 * 1024, // 64MB
             part_size: 16 * 1024 * 1024,           // 16MB
             retry_config: RetryConfig::default(),
+            circuit_breaker_config: None,          // Use defaults if not provided
         }
     }
 }
@@ -219,9 +223,15 @@ pub struct S3StorageBackend {
 
 impl S3StorageBackend {
     fn from_object_store(config: S3Config, client: Arc<dyn ObjectStore>) -> Self {
+        // Use configured circuit breaker settings or defaults
+        let cb_config = config
+            .circuit_breaker_config
+            .clone()
+            .unwrap_or_default();
+
         let circuit_breaker = Arc::new(CircuitBreaker::new(
-            5,                       // 5 consecutive failures to open
-            Duration::from_secs(30), // 30 seconds recovery timeout
+            cb_config.failure_threshold,
+            cb_config.recovery_timeout(),
         ));
 
         Self {
