@@ -45,9 +45,8 @@ impl MemoryStorageBackend {
 
     /// Helper to bump manifest version (mirrors S3StorageBackend)
     fn bump_manifest_revision(manifest: &mut CollectionManifest) {
-        manifest.latest_version += 1;
-        manifest.epoch += 1;
-        manifest.updated_at = chrono::Utc::now();
+        // Use shared revision bump logic from CollectionManifest
+        manifest.bump_revision();
     }
 
     /// Persist manifest with optimistic locking (version check)

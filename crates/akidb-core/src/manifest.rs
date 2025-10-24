@@ -50,3 +50,20 @@ pub struct ManifestEntry {
     pub payload_uri: String,
     pub bitmap_uri: Option<String>,
 }
+
+impl CollectionManifest {
+    /// Increments the manifest revision for optimistic locking.
+    ///
+    /// This method updates:
+    /// - `updated_at`: Sets to current UTC time
+    /// - `epoch`: Increments with saturating addition (no overflow panic)
+    /// - `latest_version`: Increments with saturating addition (no overflow panic)
+    ///
+    /// Uses saturating arithmetic to prevent overflow panics, though reaching
+    /// u64::MAX would require 18 quintillion operations (unrealistic in practice).
+    pub fn bump_revision(&mut self) {
+        self.updated_at = chrono::Utc::now();
+        self.epoch = self.epoch.saturating_add(1);
+        self.latest_version = self.latest_version.saturating_add(1);
+    }
+}

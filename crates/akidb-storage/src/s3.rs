@@ -483,9 +483,10 @@ impl S3StorageBackend {
 
     /// Bump manifest metadata to reflect a mutation.
     fn bump_manifest_revision(manifest: &mut CollectionManifest) {
-        manifest.updated_at = chrono::Utc::now();
-        manifest.epoch = manifest.epoch.saturating_add(1);
-        manifest.latest_version = manifest.latest_version.saturating_add(1);
+        // Use shared revision bump logic from CollectionManifest
+        manifest.bump_revision();
+
+        // Recalculate total_vectors from segments
         manifest.total_vectors = manifest
             .segments
             .iter()
@@ -769,56 +770,21 @@ impl StorageBackend for S3StorageBackend {
         );
 
         info!(
-            "Writing segment {} for collection {}",
+            "Writing segment descriptor {} for collection {} (manifest NOT modified)",
             descriptor.segment_id, descriptor.collection
         );
 
-        let mut manifest =
-            self.load_manifest(&descriptor.collection)
-                .await
-                .map_err(|e| match e {
-                    Error::NotFound(_) => Error::Validation(format!(
-                        "Collection {} does not exist for segment {}",
-                        descriptor.collection, descriptor.segment_id
-                    )),
-                    other => other,
-                })?;
-
-        if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
-            return Err(Error::Validation(format!(
-                "Segment {} dimension {} does not match collection {} dimension {}",
-                descriptor.segment_id,
-                descriptor.vector_dim,
-                descriptor.collection,
-                manifest.dimension
-            )));
-        }
-
-        if manifest
-            .segments
-            .iter()
-            .any(|seg| seg.segment_id == descriptor.segment_id)
-        {
-            return Err(Error::Conflict(format!(
-                "Segment {} already exists in collection {}",
-                descriptor.segment_id, descriptor.collection
-            )));
-        }
-
-        // Serialize segment (placeholder - actual serialization will be in SEGv1 implementation)
+        // Only write descriptor JSON to storage
+        // DO NOT modify manifest here - that should be done by the caller with proper locking
         let data = serde_json::to_vec(&descriptor)
             .map_err(|e| Error::Storage(format!("Failed to serialize segment: {}", e)))?;
 
         let key = self.segment_key(&descriptor.collection, descriptor.segment_id);
         self.put_object_internal(&key, Bytes::from(data)).await?;
 
-        manifest.segments.push(descriptor.clone());
-        Self::bump_manifest_revision(&mut manifest);
-        self.persist_manifest(&manifest).await?;
-
         info!(
-            "Segment {} persisted and manifest updated for collection {}",
-            descriptor.segment_id, descriptor.collection
+            "Segment {} descriptor written to storage (manifest update skipped - caller's responsibility)",
+            descriptor.segment_id
         );
         Ok(())
     }
