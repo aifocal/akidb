@@ -90,6 +90,7 @@ dependencies = [
  "chrono",
  "instant-distance",
  "parking_lot",
+ "rand 0.8.5",
  "rayon",
  "roaring",
  "serde",

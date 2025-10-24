@@ -37,27 +37,69 @@ pub struct HnswConfig {
 impl Default for HnswConfig {
     fn default() -> Self {
         Self {
-            m: 16,
-            ef_construction: 200,
-            ef_search: 100,
+            m: 16,  // Note: instant-distance uses hardcoded M=12, this is for documentation only
+            ef_construction: 400,  // Higher value for better index quality
+            ef_search: 200,  // Higher value for better recall
         }
     }
 }
 
+/// Compute L2 (Euclidean) distance
+fn compute_l2(a: &[f32], b: &[f32]) -> f32 {
+    let mut sum = 0.0;
+    for i in 0..a.len() {
+        let diff = a[i] - b[i];
+        sum += diff * diff;
+    }
+    sum.sqrt()
+}
+
+/// Compute Cosine distance (1 - cosine similarity)
+fn compute_cosine(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    let mut norm_a = 0.0;
+    let mut norm_b = 0.0;
+
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+
+    let norm_a = norm_a.sqrt();
+    let norm_b = norm_b.sqrt();
+
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 1.0; // Maximum distance for zero vectors
+    }
+
+    1.0 - (dot / (norm_a * norm_b))
+}
+
+/// Compute Dot product distance (negative dot product)
+fn compute_dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+    }
+    -dot // Negate for "distance" semantic
+}
+
 /// Wrapper type for vectors to implement instant_distance::Point
 #[derive(Clone, Debug)]
-struct VectorPoint(Vec<f32>);
+struct VectorPoint {
+    vector: Vec<f32>,
+    distance_metric: Arc<DistanceMetric>,
+}
 
 impl Point for VectorPoint {
     fn distance(&self, other: &Self) -> f32 {
-        // Compute L2 (Euclidean) distance
-        // instant-distance uses distance, not similarity (lower = closer)
-        let mut sum = 0.0;
-        for i in 0..self.0.len() {
-            let diff = self.0[i] - other.0[i];
-            sum += diff * diff;
+        // Use configured distance metric instead of hardcoded L2
+        match *self.distance_metric {
+            DistanceMetric::L2 => compute_l2(&self.vector, &other.vector),
+            DistanceMetric::Cosine => compute_cosine(&self.vector, &other.vector),
+            DistanceMetric::Dot => compute_dot(&self.vector, &other.vector),
         }
-        sum.sqrt()
     }
 }
 
@@ -70,6 +112,7 @@ struct SerializableVectorStore {
     payloads: Vec<serde_json::Value>,
     dimension: usize,
     distance: DistanceMetric,
+    config: HnswConfig,
 }
 
 /// In-memory vector store for HNSW index
@@ -86,6 +129,8 @@ struct VectorStore {
     dimension: usize,
     /// Distance metric
     distance: DistanceMetric,
+    /// HNSW configuration
+    config: HnswConfig,
     /// HNSW index (optional, built when vectors are added)
     hnsw_index: Option<HnswMap<VectorPoint, usize>>,
 }
@@ -100,11 +145,13 @@ impl VectorStore {
             payloads: self.payloads.clone(),
             dimension: self.dimension,
             distance: self.distance,
+            config: self.config.clone(),
         }
     }
 
     /// Create from serializable representation and rebuild HNSW index
     fn from_serializable(data: SerializableVectorStore) -> Self {
+        let config = data.config.clone();
         let mut store = Self {
             collection: data.collection,
             primary_keys: data.primary_keys,
@@ -112,11 +159,12 @@ impl VectorStore {
             payloads: data.payloads,
             dimension: data.dimension,
             distance: data.distance,
+            config: data.config,
             hnsw_index: None,
         };
 
         // Rebuild HNSW index if there are vectors
-        store.rebuild_hnsw_index();
+        store.rebuild_hnsw_index_with_config(config);
 
         store
     }
@@ -130,7 +178,7 @@ impl VectorStore {
 }
 
 impl VectorStore {
-    fn new(collection: String, dimension: usize, distance: DistanceMetric) -> Self {
+    fn new(collection: String, dimension: usize, distance: DistanceMetric, config: HnswConfig) -> Self {
         Self {
             collection,
             primary_keys: Vec::new(),
@@ -138,6 +186,7 @@ impl VectorStore {
             payloads: Vec::new(),
             dimension,
             distance,
+            config,
             hnsw_index: None,
         }
     }
@@ -171,14 +220,15 @@ impl VectorStore {
             self.payloads.push(batch.payloads[i].clone());
         }
 
-        // Rebuild HNSW index with all vectors
-        self.rebuild_hnsw_index();
+        // Rebuild HNSW index with all vectors using configured parameters
+        let config = self.config.clone();
+        self.rebuild_hnsw_index_with_config(config);
 
         Ok(())
     }
 
-    /// Rebuild HNSW index from current vectors
-    fn rebuild_hnsw_index(&mut self) {
+    /// Rebuild HNSW index with specific configuration
+    fn rebuild_hnsw_index_with_config(&mut self, config: HnswConfig) {
         let count = self.vectors.len() / self.dimension;
 
         // HNSW is an approximate algorithm that works best with larger datasets.
@@ -195,18 +245,33 @@ impl VectorStore {
         }
 
         // Convert flat vector array to VectorPoint instances
+        let distance_metric = Arc::new(self.distance);
         let points: Vec<VectorPoint> = self
             .vectors
             .chunks(self.dimension)
-            .map(|chunk| VectorPoint(chunk.to_vec()))
+            .map(|chunk| VectorPoint {
+                vector: chunk.to_vec(),
+                distance_metric: Arc::clone(&distance_metric),
+            })
             .collect();
 
-        // Build HNSW index with default parameters
+        // Build HNSW index with configured parameters
         // Values are mapped to indices (0..count)
         let values: Vec<usize> = (0..count).collect();
 
-        let hnsw = Builder::default().build(points, values);
+        info!(
+            "Building HNSW index with {} vectors, ef_construction={}, ef_search={}",
+            count, config.ef_construction, config.ef_search
+        );
+
+        let hnsw = Builder::default()
+            .ef_construction(config.ef_construction)
+            .ef_search(config.ef_search)
+            .build(points, values);
+
         self.hnsw_index = Some(hnsw);
+
+        info!("HNSW index built successfully with {} vectors", count);
     }
 
     /// Search for nearest neighbors using HNSW index
@@ -229,7 +294,11 @@ impl VectorStore {
 
         // Use HNSW search if index is available
         if let Some(ref hnsw) = self.hnsw_index {
-            let query_point = VectorPoint(query.components.clone());
+            let distance_metric = Arc::new(self.distance);
+            let query_point = VectorPoint {
+                vector: query.components.clone(),
+                distance_metric,
+            };
             let mut search = Search::default();
 
             // Search HNSW index for top_k nearest neighbors
@@ -241,8 +310,9 @@ impl VectorStore {
                 .into_iter()
                 .take(options.top_k as usize)
                 .filter_map(|item| {
-                    // Extract the u32 value from PointId and convert to usize
-                    let idx = item.pid.into_inner() as usize;
+                    // IMPORTANT: item.value contains the original index we passed during build
+                    // (not item.pid which is HNSW's internal ID after reordering)
+                    let idx = *item.value;
 
                     // Apply filter if provided
                     if let Some(ref bitmap) = options.filter {
@@ -420,6 +490,7 @@ impl IndexProvider for HnswIndexProvider {
             collection = %request.collection,
             m = self.config.m,
             ef_construction = self.config.ef_construction,
+            ef_search = self.config.ef_search,
             "Building HNSW index"
         );
 
@@ -438,8 +509,13 @@ impl IndexProvider for HnswIndexProvider {
             ));
         }
 
-        // Create new vector store
-        let store = VectorStore::new(request.collection.clone(), dimension, request.distance);
+        // Create new vector store with HNSW configuration
+        let store = VectorStore::new(
+            request.collection.clone(),
+            dimension,
+            request.distance,
+            self.config.clone(),
+        );
 
         // Store index
         {
@@ -629,13 +705,13 @@ mod tests {
     fn test_hnsw_config_default() {
         let config = HnswConfig::default();
         assert_eq!(config.m, 16);
-        assert_eq!(config.ef_construction, 200);
-        assert_eq!(config.ef_search, 100);
+        assert_eq!(config.ef_construction, 400);
+        assert_eq!(config.ef_search, 200);
     }
 
     #[test]
     fn test_compute_distance_l2() {
-        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::L2);
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::L2, HnswConfig::default());
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![4.0, 5.0, 6.0];
         let distance = store.compute_distance(&a, &b);
@@ -645,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_compute_distance_cosine() {
-        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Cosine);
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Cosine, HnswConfig::default());
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![0.0, 1.0, 0.0];
         let distance = store.compute_distance(&a, &b);
@@ -655,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_compute_distance_dot() {
-        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Dot);
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Dot, HnswConfig::default());
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![4.0, 5.0, 6.0];
         let distance = store.compute_distance(&a, &b);
@@ -680,9 +756,20 @@ mod tests {
 
     #[test]
     fn test_vector_point_distance() {
-        let p1 = VectorPoint(vec![1.0, 0.0, 0.0]);
-        let p2 = VectorPoint(vec![1.0, 0.1, 0.0]);
-        let p3 = VectorPoint(vec![0.0, 1.0, 0.0]);
+        use std::sync::Arc;
+        let distance_metric = Arc::new(DistanceMetric::L2);
+        let p1 = VectorPoint {
+            vector: vec![1.0, 0.0, 0.0],
+            distance_metric: Arc::clone(&distance_metric),
+        };
+        let p2 = VectorPoint {
+            vector: vec![1.0, 0.1, 0.0],
+            distance_metric: Arc::clone(&distance_metric),
+        };
+        let p3 = VectorPoint {
+            vector: vec![0.0, 1.0, 0.0],
+            distance_metric: Arc::clone(&distance_metric),
+        };
 
         // Distance from p2 to p1 should be 0.1
         let d1 = p2.distance(&p1);
