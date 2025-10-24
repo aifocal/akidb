@@ -122,22 +122,38 @@ impl CircuitBreaker {
     }
 
     fn is_open(&self) -> bool {
-        let state = *self.state.read();
+        // First, check state with read lock (common case: not open)
+        let (should_transition, is_open) = {
+            let state = *self.state.read();
 
-        if state == CircuitState::Open {
-            // Check if recovery timeout has passed
-            if let Some(last_failure) = *self.last_failure_time.read() {
-                if last_failure.elapsed() >= self.recovery_timeout {
-                    // Transition to half-open
-                    *self.state.write() = CircuitState::HalfOpen;
-                    info!("Circuit breaker transitioning to half-open state");
-                    return false;
+            if state == CircuitState::Open {
+                // Check if recovery timeout has passed
+                if let Some(last_failure) = *self.last_failure_time.read() {
+                    if last_failure.elapsed() >= self.recovery_timeout {
+                        // Return flag to transition outside the read lock
+                        (true, false)
+                    } else {
+                        (false, true)
+                    }
+                } else {
+                    (false, true)
                 }
+            } else {
+                (false, false)
             }
-            return true;
+        }; // Read lock dropped here
+
+        // If we need to transition, acquire write lock (rare case)
+        if should_transition {
+            let mut state = self.state.write();
+            // Double-check state hasn't changed (another thread may have transitioned)
+            if *state == CircuitState::Open {
+                *state = CircuitState::HalfOpen;
+                info!("Circuit breaker transitioning to half-open state");
+            }
         }
 
-        false
+        is_open
     }
 
     fn record_success(&self) {

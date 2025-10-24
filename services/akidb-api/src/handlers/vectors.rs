@@ -76,11 +76,20 @@ pub async fn insert_vectors(
 
     // Create segment for tracking
     let segment_id = Uuid::new_v4();
+
+    // Validate vector count fits in u32 (segment size limit)
+    let record_count = u32::try_from(req.vectors.len())
+        .map_err(|_| ApiError::Validation(format!(
+            "Vector count {} exceeds maximum segment size of {} (u32::MAX)",
+            req.vectors.len(),
+            u32::MAX
+        )))?;
+
     let segment_descriptor = SegmentDescriptor {
         segment_id,
         collection: collection_name.clone(),
         vector_dim: metadata.descriptor.vector_dim,
-        record_count: req.vectors.len() as u32,
+        record_count,
         state: SegmentState::Active,
         lsn_range: 0..=0,
         compression_level: 0,
