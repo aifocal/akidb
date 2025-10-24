@@ -225,11 +225,12 @@ impl StorageBackend for MemoryStorageBackend {
                             segment_id, MAX_RETRIES
                         )));
                     }
-                    // Exponential backoff
-                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                        10 * 2_u64.pow(retry_count),
-                    ))
-                    .await;
+                    // Exponential backoff with overflow protection
+                    let delay = 10u64
+                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
+                        .min(300_000); // Max 5 minutes
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
+                        .await;
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -441,11 +442,12 @@ impl StorageBackend for MemoryStorageBackend {
                             descriptor.segment_id, MAX_RETRIES
                         )));
                     }
-                    // Exponential backoff
-                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                        10 * 2_u64.pow(retry_count),
-                    ))
-                    .await;
+                    // Exponential backoff with overflow protection
+                    let delay = 10u64
+                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
+                        .min(300_000); // Max 5 minutes
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
+                        .await;
                     continue;
                 }
                 Err(e) => {
