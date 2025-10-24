@@ -265,9 +265,15 @@ impl NativeIndexProvider {
             .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
 
         // Convert flat vector array to Vec<Vec<f32>>
+        // Use chunks_exact to enforce dimension integrity
+        debug_assert_eq!(
+            store.vectors.len() % store.dimension,
+            0,
+            "vectors.len() must be divisible by dimension"
+        );
         let vectors: Vec<Vec<f32>> = store
             .vectors
-            .chunks(store.dimension)
+            .chunks_exact(store.dimension)
             .map(|chunk| chunk.to_vec())
             .collect();
 

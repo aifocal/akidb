@@ -229,6 +229,17 @@ impl VectorStore {
 
     /// Rebuild HNSW index with specific configuration
     fn rebuild_hnsw_index_with_config(&mut self, config: HnswConfig) {
+        // INVARIANT CHECK: vectors length must be exact multiple of dimension
+        // This ensures data integrity and prevents creating malformed vectors
+        assert_eq!(
+            self.vectors.len() % self.dimension,
+            0,
+            "Data integrity error: vectors.len() ({}) must be divisible by dimension ({}). \
+             This indicates a bug in the index implementation.",
+            self.vectors.len(),
+            self.dimension
+        );
+
         let count = self.vectors.len() / self.dimension;
 
         // HNSW is an approximate algorithm that works best with larger datasets.
@@ -245,10 +256,11 @@ impl VectorStore {
         }
 
         // Convert flat vector array to VectorPoint instances
+        // Use chunks_exact to enforce dimension (will panic if not exact multiple)
         let distance_metric = Arc::new(self.distance);
         let points: Vec<VectorPoint> = self
             .vectors
-            .chunks(self.dimension)
+            .chunks_exact(self.dimension)
             .map(|chunk| VectorPoint {
                 vector: chunk.to_vec(),
                 distance_metric: Arc::clone(&distance_metric),
@@ -456,9 +468,15 @@ impl HnswIndexProvider {
             .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
 
         // Convert flat vector array to Vec<Vec<f32>>
+        // Use chunks_exact to enforce dimension integrity
+        debug_assert_eq!(
+            store.vectors.len() % store.dimension,
+            0,
+            "vectors.len() must be divisible by dimension"
+        );
         let vectors: Vec<Vec<f32>> = store
             .vectors
-            .chunks(store.dimension)
+            .chunks_exact(store.dimension)
             .map(|chunk| chunk.to_vec())
             .collect();
 
