@@ -7,9 +7,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use instant_distance::{Builder, HnswMap, Point, Search};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use akidb_core::{DistanceMetric, Error, Result};
@@ -43,8 +44,35 @@ impl Default for HnswConfig {
     }
 }
 
-/// In-memory vector store for HNSW index
+/// Wrapper type for vectors to implement instant_distance::Point
+#[derive(Clone, Debug)]
+struct VectorPoint(Vec<f32>);
+
+impl Point for VectorPoint {
+    fn distance(&self, other: &Self) -> f32 {
+        // Compute L2 (Euclidean) distance
+        // instant-distance uses distance, not similarity (lower = closer)
+        let mut sum = 0.0;
+        for i in 0..self.0.len() {
+            let diff = self.0[i] - other.0[i];
+            sum += diff * diff;
+        }
+        sum.sqrt()
+    }
+}
+
+/// Serializable representation of VectorStore (without HNSW index)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct SerializableVectorStore {
+    collection: String,
+    primary_keys: Vec<String>,
+    vectors: Vec<f32>,
+    payloads: Vec<serde_json::Value>,
+    dimension: usize,
+    distance: DistanceMetric,
+}
+
+/// In-memory vector store for HNSW index
 struct VectorStore {
     /// Collection name
     collection: String,
@@ -58,6 +86,40 @@ struct VectorStore {
     dimension: usize,
     /// Distance metric
     distance: DistanceMetric,
+    /// HNSW index (optional, built when vectors are added)
+    hnsw_index: Option<HnswMap<VectorPoint, usize>>,
+}
+
+impl VectorStore {
+    /// Convert to serializable representation
+    fn to_serializable(&self) -> SerializableVectorStore {
+        SerializableVectorStore {
+            collection: self.collection.clone(),
+            primary_keys: self.primary_keys.clone(),
+            vectors: self.vectors.clone(),
+            payloads: self.payloads.clone(),
+            dimension: self.dimension,
+            distance: self.distance,
+        }
+    }
+
+    /// Create from serializable representation and rebuild HNSW index
+    fn from_serializable(data: SerializableVectorStore) -> Self {
+        let mut store = Self {
+            collection: data.collection,
+            primary_keys: data.primary_keys,
+            vectors: data.vectors,
+            payloads: data.payloads,
+            dimension: data.dimension,
+            distance: data.distance,
+            hnsw_index: None,
+        };
+
+        // Rebuild HNSW index if there are vectors
+        store.rebuild_hnsw_index();
+
+        store
+    }
 }
 
 impl VectorStore {
@@ -76,10 +138,11 @@ impl VectorStore {
             payloads: Vec::new(),
             dimension,
             distance,
+            hnsw_index: None,
         }
     }
 
-    /// Add a batch of vectors
+    /// Add a batch of vectors and rebuild HNSW index
     fn add_batch(&mut self, batch: &IndexBatch) -> Result<()> {
         if batch.primary_keys.len() != batch.vectors.len()
             || batch.vectors.len() != batch.payloads.len()
@@ -108,11 +171,45 @@ impl VectorStore {
             self.payloads.push(batch.payloads[i].clone());
         }
 
+        // Rebuild HNSW index with all vectors
+        self.rebuild_hnsw_index();
+
         Ok(())
     }
 
-    /// Search for nearest neighbors using brute force
-    /// TODO: Integrate instant-distance HNSW search
+    /// Rebuild HNSW index from current vectors
+    fn rebuild_hnsw_index(&mut self) {
+        let count = self.vectors.len() / self.dimension;
+
+        // HNSW is an approximate algorithm that works best with larger datasets.
+        // For small datasets (< 100 vectors), use brute force search instead.
+        const MIN_VECTORS_FOR_HNSW: usize = 100;
+
+        if count < MIN_VECTORS_FOR_HNSW {
+            info!(
+                "Skipping HNSW build for {} vectors (minimum: {}), will use brute force",
+                count, MIN_VECTORS_FOR_HNSW
+            );
+            self.hnsw_index = None;
+            return;
+        }
+
+        // Convert flat vector array to VectorPoint instances
+        let points: Vec<VectorPoint> = self
+            .vectors
+            .chunks(self.dimension)
+            .map(|chunk| VectorPoint(chunk.to_vec()))
+            .collect();
+
+        // Build HNSW index with default parameters
+        // Values are mapped to indices (0..count)
+        let values: Vec<usize> = (0..count).collect();
+
+        let hnsw = Builder::default().build(points, values);
+        self.hnsw_index = Some(hnsw);
+    }
+
+    /// Search for nearest neighbors using HNSW index
     fn search(&self, query: &QueryVector, options: &SearchOptions) -> Result<SearchResult> {
         if query.components.len() != self.dimension {
             return Err(Error::Validation(format!(
@@ -130,7 +227,51 @@ impl VectorStore {
             });
         }
 
-        // Compute distances for all vectors (brute force fallback)
+        // Use HNSW search if index is available
+        if let Some(ref hnsw) = self.hnsw_index {
+            let query_point = VectorPoint(query.components.clone());
+            let mut search = Search::default();
+
+            // Search HNSW index for top_k nearest neighbors
+            // Collect results explicitly with type annotation for type inference
+            let results: Vec<_> = hnsw.search(&query_point, &mut search).collect();
+
+            // Convert HNSW results to our format
+            let neighbors: Vec<ScoredPoint> = results
+                .into_iter()
+                .take(options.top_k as usize)
+                .filter_map(|item| {
+                    // Extract the u32 value from PointId and convert to usize
+                    let idx = item.pid.into_inner() as usize;
+
+                    // Apply filter if provided
+                    if let Some(ref bitmap) = options.filter {
+                        if !bitmap.contains(idx as u32) {
+                            return None;
+                        }
+                    }
+
+                    // HNSW returns L2 distance (lower = closer)
+                    // Use distance directly as score
+                    let score = item.distance;
+
+                    Some(ScoredPoint {
+                        primary_key: self.primary_keys[idx].clone(),
+                        score,
+                        payload: Some(self.payloads[idx].clone()),
+                    })
+                })
+                .collect();
+
+            return Ok(SearchResult {
+                query: query.clone(),
+                neighbors,
+            });
+        }
+
+        // Fallback to brute force if HNSW index not available
+        warn!("HNSW index not available, falling back to brute force search");
+
         let mut scored: Vec<(usize, f32)> = (0..count)
             .filter_map(|idx| {
                 // Apply filter if provided
@@ -424,7 +565,9 @@ impl IndexProvider for HnswIndexProvider {
             .get(&handle.index_id)
             .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
 
-        let data = serde_json::to_vec(store)
+        // Serialize using the serializable representation (without HNSW graph)
+        let serializable = store.to_serializable();
+        let data = serde_json::to_vec(&serializable)
             .map_err(|e| Error::Serialization(format!("Failed to serialize HNSW index: {}", e)))?;
 
         debug!(
@@ -439,8 +582,12 @@ impl IndexProvider for HnswIndexProvider {
     fn deserialize(&self, bytes: &[u8]) -> Result<IndexHandle> {
         debug!(size_bytes = bytes.len(), "Deserializing HNSW index");
 
-        let store: VectorStore = serde_json::from_slice(bytes)
+        // Deserialize from the serializable representation
+        let serializable: SerializableVectorStore = serde_json::from_slice(bytes)
             .map_err(|e| Error::Serialization(format!("Failed to deserialize HNSW index: {}", e)))?;
+
+        // Reconstruct VectorStore and rebuild HNSW index from vectors
+        let store = VectorStore::from_serializable(serializable);
 
         let index_id = Uuid::new_v4();
         let dimension = store.dimension as u16;
@@ -529,6 +676,24 @@ mod tests {
 
         // Should fail with dimension 0
         assert!(provider.build(request).await.is_err());
+    }
+
+    #[test]
+    fn test_vector_point_distance() {
+        let p1 = VectorPoint(vec![1.0, 0.0, 0.0]);
+        let p2 = VectorPoint(vec![1.0, 0.1, 0.0]);
+        let p3 = VectorPoint(vec![0.0, 1.0, 0.0]);
+
+        // Distance from p2 to p1 should be 0.1
+        let d1 = p2.distance(&p1);
+        assert!((d1 - 0.1).abs() < 0.001, "Distance to p1: {}", d1);
+
+        // Distance from p2 to p3 should be sqrt(1.81) ≈ 1.345
+        let d2 = p2.distance(&p3);
+        assert!((d2 - 1.345).abs() < 0.01, "Distance to p3: {}", d2);
+
+        // p1 should be closer to p2 than p3
+        assert!(d1 < d2, "p1 ({}) should be closer than p3 ({})", d1, d2);
     }
 
     #[tokio::test]
