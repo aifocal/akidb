@@ -745,6 +745,12 @@ impl StorageBackend for S3StorageBackend {
     }
 
     async fn write_segment(&self, descriptor: &SegmentDescriptor) -> Result<()> {
+        warn!(
+            "Deprecated: write_segment() called for segment {}. \
+             Migrate to write_segment_with_data() for atomic manifest updates and data persistence.",
+            descriptor.segment_id
+        );
+
         info!(
             "Writing segment {} for collection {}",
             descriptor.segment_id, descriptor.collection
@@ -1006,8 +1012,10 @@ mod tests {
     }
 
     fn test_backend() -> S3StorageBackend {
-        let mut config = S3Config::default();
-        config.bucket = "test-bucket".to_string();
+        let config = S3Config {
+            bucket: "test-bucket".to_string(),
+            ..Default::default()
+        };
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         S3StorageBackend::new_with_object_store(config, store)
     }

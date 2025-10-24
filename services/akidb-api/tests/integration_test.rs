@@ -434,3 +434,121 @@ async fn test_delete_nonexistent_collection() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_concurrent_storage_operations() {
+    // Test concurrent storage operations via direct storage access
+    // to verify optimistic locking in write_segment_with_data
+    use akidb_core::{CollectionDescriptor, PayloadSchema, SegmentDescriptor, SegmentState};
+    use akidb_storage::StorageBackend;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    let storage = Arc::new(MemoryStorageBackend::new());
+
+    // 1. Create collection
+    let collection = CollectionDescriptor {
+        name: "concurrent_storage_test".to_string(),
+        vector_dim: 32,
+        distance: akidb_core::DistanceMetric::L2,
+        replication: 1,
+        shard_count: 1,
+        payload_schema: PayloadSchema { fields: vec![] },
+    };
+
+    storage.create_collection(&collection).await.unwrap();
+
+    // 2. Prepare multiple segment descriptors
+    let segment_ids: Vec<Uuid> = (0..3).map(|_| Uuid::new_v4()).collect();
+
+    let descriptors: Vec<SegmentDescriptor> = segment_ids
+        .iter()
+        .enumerate()
+        .map(|(i, &segment_id)| SegmentDescriptor {
+            segment_id,
+            collection: "concurrent_storage_test".to_string(),
+            record_count: 20,
+            vector_dim: 32,
+            lsn_range: (i * 20) as u64..=((i + 1) * 20 - 1) as u64,
+            compression_level: 0,
+            created_at: Utc::now(),
+            state: SegmentState::Active,
+        })
+        .collect();
+
+    // 3. Generate test vectors for each segment
+    let vectors_sets: Vec<Vec<Vec<f32>>> = (0..3)
+        .map(|seg_idx| {
+            (0..20)
+                .map(|i| {
+                    (0..32)
+                        .map(|j| ((seg_idx * 20 + i) * 32 + j) as f32 * 0.01)
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+
+    // 4. Drive concurrent writes using tokio::join!
+    let storage_1 = storage.clone();
+    let storage_2 = storage.clone();
+    let storage_3 = storage.clone();
+
+    let (result_1, result_2, result_3) = tokio::join!(
+        storage_1.write_segment_with_data(&descriptors[0], vectors_sets[0].clone(), None),
+        storage_2.write_segment_with_data(&descriptors[1], vectors_sets[1].clone(), None),
+        storage_3.write_segment_with_data(&descriptors[2], vectors_sets[2].clone(), None)
+    );
+
+    // 5. Assert all operations succeeded
+    assert!(result_1.is_ok(), "First write should succeed: {:?}", result_1);
+    assert!(
+        result_2.is_ok(),
+        "Second write should succeed: {:?}",
+        result_2
+    );
+    assert!(result_3.is_ok(), "Third write should succeed: {:?}", result_3);
+
+    // 6. Verify manifest contains all segments
+    let manifest = storage
+        .load_manifest("concurrent_storage_test")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        manifest.segments.len(),
+        3,
+        "Manifest should contain all 3 segments"
+    );
+
+    // Verify all segment IDs are present
+    let manifest_segment_ids: Vec<Uuid> =
+        manifest.segments.iter().map(|s| s.segment_id).collect();
+
+    for &expected_id in &segment_ids {
+        assert!(
+            manifest_segment_ids.contains(&expected_id),
+            "Manifest should contain segment {:?}",
+            expected_id
+        );
+    }
+
+    // Verify manifest version incremented due to concurrent updates
+    assert!(
+        manifest.latest_version >= 3,
+        "Manifest version should be at least 3, got {}",
+        manifest.latest_version
+    );
+
+    // Verify total vector count
+    assert_eq!(
+        manifest.total_vectors, 60,
+        "Manifest should track 60 total vectors (3 × 20)"
+    );
+
+    println!(
+        "✅ Concurrent storage operations test passed (manifest version: {}, {} segments)",
+        manifest.latest_version,
+        manifest.segments.len()
+    );
+}

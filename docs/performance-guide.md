@@ -150,6 +150,12 @@ sudo systemsetup -setcomputersleep Never
 - **Baseline Report**: `tmp/PHASE2-BASELINE-METRICS.md`
 - **Benchmark 代碼**: `crates/akidb-benchmarks/`
 
+### Migration Guides
+
+- **[Manifest V1 Migration](migrations/manifest_v1.md)** - Atomic manifest operations and optimistic locking for concurrent writes
+- **[Storage API Migration](migration-guide.md)** - Migrating from `write_segment` to `write_segment_with_data` with SEGv1 format
+- **[Index Providers Guide](index-providers.md)** - Vector index implementation guide and contract testing
+
 ---
 
 **下一步**:

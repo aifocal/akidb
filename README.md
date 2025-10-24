@@ -95,6 +95,16 @@ AkiDB is designed for teams who value **simplicity, cost-efficiency, and control
 
 ---
 
+## 📚 Documentation
+
+### Migration Guides
+
+- **[Manifest V1 Migration](docs/migrations/manifest_v1.md)** - Atomic manifest operations and optimistic locking for concurrent writes
+- **[Storage API Migration](docs/migration-guide.md)** - Migrating from `write_segment` to `write_segment_with_data` with SEGv1 format
+- **[Index Providers Guide](docs/index-providers.md)** - Vector index implementation guide and contract testing
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites

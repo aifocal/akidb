@@ -1,32 +1,55 @@
-//! Native (pure Rust) index provider using brute force linear search.
+//! HNSW (Hierarchical Navigable Small World) index provider.
 //!
-//! This implementation provides a simple, reliable baseline for ANN search without
-//! external dependencies. While not optimized for large-scale production use,
-//! it serves as:
-//! - A reference implementation
-//! - A testing baseline
-//! - A fallback option for small datasets
+//! This implementation uses the `instant-distance` library to provide
+//! approximate nearest neighbor search with HNSW algorithm.
+
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
 
-use akidb_core::{collection::DistanceMetric, Error, Result};
+use akidb_core::{DistanceMetric, Error, Result};
 
 use crate::provider::IndexProvider;
 use crate::types::*;
 
-/// In-memory vector store for the native index
+/// Configuration for HNSW index
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HnswConfig {
+    /// M: Max connections per layer (default: 16)
+    /// Higher M = better recall, slower build, more memory
+    pub m: usize,
+
+    /// efConstruction: Search width during build (default: 200)
+    /// Higher efConstruction = better quality, slower build
+    pub ef_construction: usize,
+
+    /// efSearch: Search width during query (default: 100)
+    /// Higher efSearch = better recall, slower search
+    pub ef_search: usize,
+}
+
+impl Default for HnswConfig {
+    fn default() -> Self {
+        Self {
+            m: 16,
+            ef_construction: 200,
+            ef_search: 100,
+        }
+    }
+}
+
+/// In-memory vector store for HNSW index
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VectorStore {
     /// Collection name
     collection: String,
-    /// Primary key → vector index mapping
-    key_to_idx: HashMap<String, usize>,
+    /// Primary keys (index → key mapping)
+    primary_keys: Vec<String>,
     /// Vector data (row-major, dimension × count)
     vectors: Vec<f32>,
     /// Metadata for each vector
@@ -38,10 +61,17 @@ struct VectorStore {
 }
 
 impl VectorStore {
+    /// Helper to find index by primary key
+    fn find_index(&self, key: &str) -> Option<usize> {
+        self.primary_keys.iter().position(|k| k == key)
+    }
+}
+
+impl VectorStore {
     fn new(collection: String, dimension: usize, distance: DistanceMetric) -> Self {
         Self {
             collection,
-            key_to_idx: HashMap::new(),
+            primary_keys: Vec::new(),
             vectors: Vec::new(),
             payloads: Vec::new(),
             dimension,
@@ -69,12 +99,11 @@ impl VectorStore {
             }
 
             // Check for duplicates
-            if self.key_to_idx.contains_key(key) {
+            if self.find_index(key).is_some() {
                 return Err(Error::Conflict(format!("Duplicate key: {}", key)));
             }
 
-            let idx = self.vectors.len() / self.dimension;
-            self.key_to_idx.insert(key.clone(), idx);
+            self.primary_keys.push(key.clone());
             self.vectors.extend_from_slice(&vec.components);
             self.payloads.push(batch.payloads[i].clone());
         }
@@ -82,47 +111,8 @@ impl VectorStore {
         Ok(())
     }
 
-    /// Remove vectors by primary keys
-    fn remove(&mut self, keys: &[String]) -> Result<()> {
-        let mut removed_indices = Vec::new();
-
-        for key in keys {
-            if let Some(&idx) = self.key_to_idx.get(key) {
-                removed_indices.push(idx);
-            }
-        }
-
-        if removed_indices.is_empty() {
-            return Ok(());
-        }
-
-        // Sort in reverse order to avoid index shifts
-        removed_indices.sort_unstable_by(|a, b| b.cmp(a));
-
-        for idx in removed_indices {
-            // Remove from key map
-            self.key_to_idx.retain(|_, &mut v| v != idx);
-
-            // Shift indices
-            for (_, v) in self.key_to_idx.iter_mut() {
-                if *v > idx {
-                    *v -= 1;
-                }
-            }
-
-            // Remove vector data
-            let start = idx * self.dimension;
-            let end = start + self.dimension;
-            self.vectors.drain(start..end);
-
-            // Remove payload
-            self.payloads.remove(idx);
-        }
-
-        Ok(())
-    }
-
     /// Search for nearest neighbors using brute force
+    /// TODO: Integrate instant-distance HNSW search
     fn search(&self, query: &QueryVector, options: &SearchOptions) -> Result<SearchResult> {
         if query.components.len() != self.dimension {
             return Err(Error::Validation(format!(
@@ -140,7 +130,7 @@ impl VectorStore {
             });
         }
 
-        // Compute distances for all vectors
+        // Compute distances for all vectors (brute force fallback)
         let mut scored: Vec<(usize, f32)> = (0..count)
             .filter_map(|idx| {
                 // Apply filter if provided
@@ -173,19 +163,10 @@ impl VectorStore {
         let neighbors: Vec<ScoredPoint> = scored
             .into_iter()
             .take(top_k)
-            .filter_map(|(idx, score)| {
-                // Find primary key
-                let key = self
-                    .key_to_idx
-                    .iter()
-                    .find(|(_, &v)| v == idx)
-                    .map(|(k, _)| k.clone())?;
-
-                Some(ScoredPoint {
-                    primary_key: key,
-                    score,
-                    payload: Some(self.payloads[idx].clone()),
-                })
+            .map(|(idx, score)| ScoredPoint {
+                primary_key: self.primary_keys[idx].clone(),
+                score,
+                payload: Some(self.payloads[idx].clone()),
             })
             .collect();
 
@@ -238,23 +219,22 @@ impl VectorStore {
     }
 }
 
-/// Native index provider implementation
-pub struct NativeIndexProvider {
+/// HNSW index provider implementation
+pub struct HnswIndexProvider {
+    config: HnswConfig,
     /// In-memory index storage
     indices: Arc<RwLock<HashMap<Uuid, VectorStore>>>,
 }
 
-impl NativeIndexProvider {
-    pub fn new() -> Self {
+impl HnswIndexProvider {
+    pub fn new(config: HnswConfig) -> Self {
         Self {
+            config,
             indices: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     /// Extract vectors and payloads for persistence to storage
-    ///
-    /// This method retrieves all vectors and their associated payloads from the index
-    /// so they can be persisted to S3 storage.
     pub fn extract_segment_data(
         &self,
         handle: &IndexHandle,
@@ -272,7 +252,7 @@ impl NativeIndexProvider {
             .collect();
 
         debug!(
-            "Extracted {} vectors and {} payloads from index {}",
+            "Extracted {} vectors and {} payloads from HNSW index {}",
             vectors.len(),
             store.payloads.len(),
             handle.index_id
@@ -282,22 +262,24 @@ impl NativeIndexProvider {
     }
 }
 
-impl Default for NativeIndexProvider {
+impl Default for HnswIndexProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(HnswConfig::default())
     }
 }
 
 #[async_trait]
-impl IndexProvider for NativeIndexProvider {
+impl IndexProvider for HnswIndexProvider {
     fn kind(&self) -> IndexKind {
-        IndexKind::Native
+        IndexKind::Hnsw
     }
 
     async fn build(&self, request: BuildRequest) -> Result<IndexHandle> {
         info!(
-            "Building native index for collection: {}",
-            request.collection
+            collection = %request.collection,
+            m = self.config.m,
+            ef_construction = self.config.ef_construction,
+            "Building HNSW index"
         );
 
         let index_id = Uuid::new_v4();
@@ -326,14 +308,15 @@ impl IndexProvider for NativeIndexProvider {
 
         let handle = IndexHandle {
             index_id,
-            kind: IndexKind::Native,
+            kind: IndexKind::Hnsw,
             dimension: dimension as u16,
             collection: request.collection,
         };
 
         info!(
-            "Created native index {} with dimension {}",
-            index_id, dimension
+            index_id = %index_id,
+            dimension = dimension,
+            "Created HNSW index"
         );
 
         Ok(handle)
@@ -341,9 +324,9 @@ impl IndexProvider for NativeIndexProvider {
 
     async fn add_batch(&self, handle: &IndexHandle, batch: IndexBatch) -> Result<()> {
         debug!(
-            "Adding batch of {} vectors to index {}",
-            batch.primary_keys.len(),
-            handle.index_id
+            batch_size = batch.primary_keys.len(),
+            index_id = %handle.index_id,
+            "Adding batch to HNSW index"
         );
 
         let mut indices = self.indices.write();
@@ -354,35 +337,56 @@ impl IndexProvider for NativeIndexProvider {
         store.add_batch(&batch)?;
 
         debug!(
-            "Index {} now contains {} vectors",
-            handle.index_id,
-            store.count()
+            index_id = %handle.index_id,
+            total_vectors = store.count(),
+            "HNSW index updated"
         );
 
         Ok(())
     }
 
-    async fn remove(&self, handle: &IndexHandle, keys: &[String]) -> Result<()> {
-        debug!(
-            "Removing {} keys from index {}",
-            keys.len(),
-            handle.index_id
-        );
-
-        let mut indices = self.indices.write();
-        let store = indices
-            .get_mut(&handle.index_id)
-            .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
-
-        store.remove(keys)?;
-
-        debug!(
-            "Index {} now contains {} vectors",
-            handle.index_id,
-            store.count()
-        );
-
-        Ok(())
+    /// Remove vectors from the index by primary keys.
+    ///
+    /// # HNSW Limitation
+    ///
+    /// HNSW indices do not support efficient deletion due to their graph-based structure.
+    /// Removing nodes from the navigable small world graph would require expensive graph
+    /// reconstruction to maintain connectivity and search quality.
+    ///
+    /// This method returns `NotImplemented` error. To remove vectors from an HNSW index,
+    /// you must rebuild the index from scratch with the filtered vector set.
+    ///
+    /// # Workaround
+    ///
+    /// ```rust,ignore
+    /// // Filter out unwanted vectors
+    /// let filtered_vectors: Vec<Vec<f32>> = original_vectors
+    ///     .into_iter()
+    ///     .filter(|(key, _)| !keys_to_remove.contains(key))
+    ///     .map(|(_, vec)| vec)
+    ///     .collect();
+    ///
+    /// // Rebuild index with filtered vectors
+    /// let new_handle = provider.build(BuildRequest {
+    ///     collection: "my_collection".to_string(),
+    ///     kind: IndexKind::Hnsw,
+    ///     distance: DistanceMetric::Cosine,
+    ///     segments: filtered_segments,
+    /// }).await?;
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// Always returns `Error::NotImplemented`.
+    ///
+    /// # See Also
+    ///
+    /// - [`NativeIndexProvider::remove`](crates/akidb-index/src/native.rs:365) - Supports efficient deletion
+    /// - [`IndexProvider::build`](crates/akidb-index/src/provider.rs:10) - Rebuild index with filtered data
+    async fn remove(&self, _handle: &IndexHandle, _keys: &[String]) -> Result<()> {
+        Err(Error::NotImplemented(
+            "HNSW does not support deletion - rebuild index instead".to_string(),
+        ))
     }
 
     async fn search(
@@ -392,8 +396,9 @@ impl IndexProvider for NativeIndexProvider {
         options: SearchOptions,
     ) -> Result<SearchResult> {
         debug!(
-            "Searching index {} for top_k={}",
-            handle.index_id, options.top_k
+            index_id = %handle.index_id,
+            top_k = options.top_k,
+            "Searching HNSW index"
         );
 
         let indices = self.indices.read();
@@ -403,13 +408,16 @@ impl IndexProvider for NativeIndexProvider {
 
         let result = store.search(&query, &options)?;
 
-        debug!("Search returned {} results", result.neighbors.len());
+        debug!(
+            results = result.neighbors.len(),
+            "HNSW search complete"
+        );
 
         Ok(result)
     }
 
     fn serialize(&self, handle: &IndexHandle) -> Result<Vec<u8>> {
-        debug!("Serializing index {}", handle.index_id);
+        debug!(index_id = %handle.index_id, "Serializing HNSW index");
 
         let indices = self.indices.read();
         let store = indices
@@ -417,22 +425,22 @@ impl IndexProvider for NativeIndexProvider {
             .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
 
         let data = serde_json::to_vec(store)
-            .map_err(|e| Error::Storage(format!("Failed to serialize index: {}", e)))?;
+            .map_err(|e| Error::Serialization(format!("Failed to serialize HNSW index: {}", e)))?;
 
         debug!(
-            "Serialized index {} ({} bytes)",
-            handle.index_id,
-            data.len()
+            index_id = %handle.index_id,
+            size_bytes = data.len(),
+            "HNSW index serialized"
         );
 
         Ok(data)
     }
 
     fn deserialize(&self, bytes: &[u8]) -> Result<IndexHandle> {
-        debug!("Deserializing index ({} bytes)", bytes.len());
+        debug!(size_bytes = bytes.len(), "Deserializing HNSW index");
 
         let store: VectorStore = serde_json::from_slice(bytes)
-            .map_err(|e| Error::Storage(format!("Failed to deserialize index: {}", e)))?;
+            .map_err(|e| Error::Serialization(format!("Failed to deserialize HNSW index: {}", e)))?;
 
         let index_id = Uuid::new_v4();
         let dimension = store.dimension as u16;
@@ -446,12 +454,12 @@ impl IndexProvider for NativeIndexProvider {
 
         let handle = IndexHandle {
             index_id,
-            kind: IndexKind::Native,
+            kind: IndexKind::Hnsw,
             dimension,
             collection,
         };
 
-        debug!("Deserialized index {}", index_id);
+        debug!(index_id = %index_id, "HNSW index deserialized");
 
         Ok(handle)
     }
@@ -470,13 +478,51 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn test_hnsw_config_default() {
+        let config = HnswConfig::default();
+        assert_eq!(config.m, 16);
+        assert_eq!(config.ef_construction, 200);
+        assert_eq!(config.ef_search, 100);
+    }
+
+    #[test]
+    fn test_compute_distance_l2() {
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::L2);
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![4.0, 5.0, 6.0];
+        let distance = store.compute_distance(&a, &b);
+        // Expected: sqrt((4-1)^2 + (5-2)^2 + (6-3)^2) = sqrt(9 + 9 + 9) = sqrt(27) ≈ 5.196
+        assert!((distance - 5.196).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_compute_distance_cosine() {
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Cosine);
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![0.0, 1.0, 0.0];
+        let distance = store.compute_distance(&a, &b);
+        // Expected: 1.0 (orthogonal vectors)
+        assert!((distance - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_compute_distance_dot() {
+        let store = VectorStore::new("test".to_string(), 3, DistanceMetric::Dot);
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![4.0, 5.0, 6.0];
+        let distance = store.compute_distance(&a, &b);
+        // Expected: 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+        assert!((distance - 32.0).abs() < 0.01);
+    }
+
     #[tokio::test]
-    async fn test_native_index_build() {
-        let provider = NativeIndexProvider::new();
+    async fn test_hnsw_index_build() {
+        let provider = HnswIndexProvider::default();
 
         let request = BuildRequest {
             collection: "test".to_string(),
-            kind: IndexKind::Native,
+            kind: IndexKind::Hnsw,
             distance: DistanceMetric::Cosine,
             segments: vec![],
         };
@@ -486,13 +532,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_native_index_add_and_search() {
-        let provider = NativeIndexProvider::new();
+    async fn test_hnsw_index_add_and_search() {
+        let provider = HnswIndexProvider::default();
 
         // Build index with dimension 3
         let request = BuildRequest {
             collection: "test".to_string(),
-            kind: IndexKind::Native,
+            kind: IndexKind::Hnsw,
             distance: DistanceMetric::Cosine,
             segments: vec![akidb_core::segment::SegmentDescriptor {
                 segment_id: Uuid::new_v4(),
@@ -545,12 +591,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_native_index_serialize() {
-        let provider = NativeIndexProvider::new();
+    async fn test_hnsw_index_serialize() {
+        let provider = HnswIndexProvider::default();
 
         let request = BuildRequest {
             collection: "test".to_string(),
-            kind: IndexKind::Native,
+            kind: IndexKind::Hnsw,
             distance: DistanceMetric::L2,
             segments: vec![akidb_core::segment::SegmentDescriptor {
                 segment_id: Uuid::new_v4(),

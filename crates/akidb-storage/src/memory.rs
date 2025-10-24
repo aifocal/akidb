@@ -134,6 +134,12 @@ impl StorageBackend for MemoryStorageBackend {
     }
 
     async fn write_segment(&self, descriptor: &SegmentDescriptor) -> Result<()> {
+        tracing::warn!(
+            "Deprecated: write_segment() called for segment {}. \
+             Migrate to write_segment_with_data() for atomic manifest updates and data persistence.",
+            descriptor.segment_id
+        );
+
         let key = format!(
             "collections/{}/segments/{}.json",
             descriptor.collection, descriptor.segment_id
@@ -207,6 +213,7 @@ impl StorageBackend for MemoryStorageBackend {
             {
                 Ok(_) => {
                     // Also update the descriptor JSON
+                    #[allow(deprecated)]
                     self.write_segment(&result).await?;
                     return Ok(result);
                 }
@@ -361,6 +368,7 @@ impl StorageBackend for MemoryStorageBackend {
             .await?;
 
         // Store descriptor JSON (do this once before retry loop)
+        #[allow(deprecated)]
         self.write_segment(descriptor).await?;
 
         // Retry loop for optimistic locking on manifest update

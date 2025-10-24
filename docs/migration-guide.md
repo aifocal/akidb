@@ -281,9 +281,13 @@ storage.write_segment_with_data(&descriptor, vectors, None).await?;
 - **Documentation**: `/docs/`
 - **Examples**: `services/akidb-api/tests/e2e_test.rs`
 - **Performance Guide**: `docs/performance-guide.md`
+- **Manifest V1 Migration**: `docs/migrations/manifest_v1.md` - Atomic manifest operations and optimistic locking
+- **Index Providers Guide**: `docs/index-providers.md` - Vector index implementation guide
 - **Issue Tracker**: [GitHub Issues](https://github.com/defai-digital/akidb/issues)
 
 ---
 
-**Last Updated**: 2025-10-23 (Phase 3 M2)
-**Related**: `tmp/PHASE3-M2-UPDATED-STRATEGY-2025-10-23.md`
+**Last Updated**: 2025-10-24 (Phase 3 M2)
+**Related**:
+- `tmp/PHASE3-M2-UPDATED-STRATEGY-2025-10-23.md`
+- `docs/migrations/manifest_v1.md` (Optimistic locking for concurrent writes)

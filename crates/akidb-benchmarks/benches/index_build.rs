@@ -18,7 +18,7 @@ const INDEX_KINDS: [IndexKind; 1] = [IndexKind::Native];
 fn index_build_benchmarks(c: &mut Criterion) {
     let rt = runtime();
     let mut group = c.benchmark_group("index_build");
-    group.sample_size(5);
+    group.sample_size(10);
 
     for &size in DATASET_SIZES.iter() {
         for &kind in INDEX_KINDS.iter() {
@@ -139,8 +139,10 @@ fn measure_index_build(
     })
 }
 
+type DatasetCache = HashMap<usize, Arc<Vec<Vec<f32>>>>;
+
 fn dataset_for_size(size: usize) -> Arc<Vec<Vec<f32>>> {
-    static CACHE: OnceCell<Mutex<HashMap<usize, Arc<Vec<Vec<f32>>>>>> = OnceCell::new();
+    static CACHE: OnceCell<Mutex<DatasetCache>> = OnceCell::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     {
