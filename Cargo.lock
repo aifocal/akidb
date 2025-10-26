@@ -95,10 +95,11 @@ version = "0.1.0"
 dependencies = [
  "akidb-core",
  "akidb-storage",
+ "anndists",
  "async-trait",
  "bincode",
  "chrono",
- "instant-distance",
+ "hnsw_rs",
  "parking_lot",
  "rand 0.8.5",
  "rayon",
