@@ -23,6 +23,8 @@ fn vector_search_benchmarks(c: &mut Criterion) {
     let rt = runtime();
     let mut group = c.benchmark_group("vector_search");
     group.sample_size(10);
+    // Increase measurement time for 1M vectors to get better statistics
+    group.measurement_time(std::time::Duration::from_secs(30));
 
     for &size in DATASET_SIZES.iter() {
         let size_label = format_dataset_size(size);
@@ -54,9 +56,10 @@ fn run_vector_search_scenarios(
         create_collection_from_arc(Some(collection_name), vectors, payloads);
 
     for &metric in DISTANCE_METRICS.iter() {
+        // Use HNSW index for better performance
         let (base_provider, base_handle) = collection
-            .build_native_index(rt, metric)
-            .expect("failed to build index");
+            .build_hnsw_index(rt, metric, None)
+            .expect("failed to build HNSW index");
 
         let base_filter = if with_filters {
             Some(collection.build_filter_bitmap("tag", &["alpha", "beta"]))

@@ -19,6 +19,8 @@ fn index_build_benchmarks(c: &mut Criterion) {
     let rt = runtime();
     let mut group = c.benchmark_group("index_build");
     group.sample_size(10);
+    // Disable HTML plots to avoid Plotters NaN issues with pre-measured builds
+    // Use: cargo bench --package akidb-benchmarks --bench index_build -- --noplot
 
     for &size in DATASET_SIZES.iter() {
         for &kind in INDEX_KINDS.iter() {

@@ -17,6 +17,10 @@ use crate::{
 };
 
 /// Basic query planner that generates simple search plans
+///
+/// # Limitations
+/// - Filter parsing is done synchronously, which may not work in all async contexts
+/// - In future versions, this may become an async trait
 pub struct BasicQueryPlanner {
     /// Default index handle to use (if available)
     default_index: Option<Uuid>,
@@ -60,10 +64,17 @@ impl QueryPlanner for BasicQueryPlanner {
             Uuid::new_v4()
         });
 
-        // Create search options
+        // Note: Filter parsing is currently not supported in BasicQueryPlanner
+        // to avoid sync/async issues. Filters should be handled at a higher level.
+        // TODO: Make QueryPlanner trait async in future version
+        if request.filter.is_some() {
+            debug!("Filter provided but BasicQueryPlanner does not support filter parsing yet");
+        }
+
+        // Create search options without filter support for now
         let options = SearchOptions {
             top_k: request.top_k,
-            filter: None, // TODO: Parse and convert filter from request
+            filter: None,
             timeout_ms: request.timeout_ms,
         };
 

@@ -6,8 +6,9 @@
 use crate::state::{AppState, CollectionMetadata};
 use akidb_core::{collection::CollectionDescriptor, Error, Result};
 use akidb_index::{BuildRequest, IndexBatch, IndexProvider, QueryVector};
-use akidb_storage::StorageBackend;
+use akidb_storage::{StorageBackend, WalStreamId};
 use serde_json::Value;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -65,21 +66,25 @@ fn extract_primary_key(payload: &Value, index: usize) -> String {
 /// 1. Loads the manifest and descriptor
 /// 2. Loads all segments with their vectors and payloads
 /// 3. Rebuilds the index from scratch
-/// 4. Returns CollectionMetadata ready for registration
+/// 4. Replays uncommitted WAL records
+/// 5. Returns CollectionMetadata ready for registration
 async fn load_collection(
     name: &str,
     storage: &dyn StorageBackend,
     index_provider: &dyn IndexProvider,
+    metadata_store: &dyn akidb_storage::MetadataStore,
+    wal: &dyn akidb_storage::WalReplayer,
 ) -> Result<CollectionMetadata> {
     info!("Loading collection: {}", name);
 
     // 1. Load manifest
     let manifest = storage.load_manifest(name).await?;
     debug!(
-        "Loaded manifest for '{}': {} vectors, {} segments",
+        "Loaded manifest for '{}': {} vectors, {} segments, dimension: {}",
         name,
         manifest.total_vectors,
-        manifest.segments.len()
+        manifest.segments.len(),
+        manifest.dimension
     );
 
     // 2. Load descriptor
@@ -98,6 +103,7 @@ async fn load_collection(
         collection: name.to_string(),
         kind: index_provider.kind(),
         distance: descriptor.distance,
+        dimension: descriptor.vector_dim,
         segments: manifest.segments.clone(),
     };
 
@@ -109,6 +115,7 @@ async fn load_collection(
 
     // 4. Load segments and populate index
     let mut total_vectors_loaded = 0;
+    let mut global_vector_index: usize = 0; // Track global index across all segments
 
     for segment_desc in &manifest.segments {
         debug!(
@@ -145,12 +152,15 @@ async fn load_collection(
                     vec![Value::Null; vector_count]
                 };
 
-                // Extract primary keys from payloads
+                // Extract primary keys from payloads using GLOBAL index
+                // This ensures unique fallback keys across all segments
                 let primary_keys: Vec<String> = payloads
                     .iter()
                     .enumerate()
-                    .map(|(i, payload)| extract_primary_key(payload, i))
+                    .map(|(i, payload)| extract_primary_key(payload, global_vector_index + i))
                     .collect();
+
+                global_vector_index += vector_count;
 
                 // Convert vectors to QueryVector format
                 let query_vectors: Vec<QueryVector> = vectors
@@ -191,10 +201,149 @@ async fn load_collection(
         manifest.segments.len()
     );
 
+    // Load persisted WAL stream ID or create new one for backward compatibility
+    let wal_stream_id = descriptor
+        .wal_stream_id
+        .map(WalStreamId::from_uuid)
+        .unwrap_or_default();
+
+    debug!("Using WAL stream ID for '{}': {}", name, wal_stream_id.0);
+
+    // 5. WAL Replay - Replay any uncommitted WAL records after loading persisted segments
+    debug!("Starting WAL replay for collection '{}'", name);
+
+    let replay_stats = wal.replay(wal_stream_id, None).await?;
+
+    if replay_stats.records > 0 {
+        info!(
+            "Found {} uncommitted WAL records for '{}' ({} bytes)",
+            replay_stats.records, name, replay_stats.bytes
+        );
+
+        // Fetch WAL entries batch by batch in a loop
+        let max_batch_bytes = 10 * 1024 * 1024; // 10MB per batch
+        let mut last_lsn: Option<akidb_storage::LogSequence> = None;
+        let mut total_replayed = 0;
+
+        loop {
+            // Fetch next batch starting from last processed LSN
+            let wal_entries_bytes = wal
+                .next_batch(wal_stream_id, max_batch_bytes, last_lsn)
+                .await?;
+
+            if wal_entries_bytes.is_empty() {
+                debug!("No more WAL entries to replay for '{}'", name);
+                break;
+            }
+
+            // Parse and convert WAL entries to IndexBatch
+            let mut batch_vectors = Vec::new();
+            let mut batch_payloads = Vec::new();
+            let mut batch_keys = Vec::new();
+
+            for entry_bytes in wal_entries_bytes {
+                // Parse WAL entry with error handling
+                let entry: akidb_storage::WalEntry = match serde_json::from_slice(&entry_bytes) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        // Log warning and skip corrupted entry instead of failing
+                        warn!("Skipping corrupted WAL entry for '{}': {}", name, e);
+                        continue;
+                    }
+                };
+
+                // Track last processed LSN
+                last_lsn = Some(entry.lsn);
+
+                match entry.record {
+                    akidb_storage::WalRecord::Insert {
+                        primary_key,
+                        vector,
+                        payload,
+                        ..
+                    } => {
+                        // Validate vector dimension
+                        if vector.len() != descriptor.vector_dim as usize {
+                            warn!(
+                                "Skipping WAL entry with dimension mismatch: expected {}, got {} (key: {})",
+                                descriptor.vector_dim,
+                                vector.len(),
+                                primary_key
+                            );
+                            continue;
+                        }
+
+                        batch_keys.push(primary_key);
+                        batch_vectors.push(QueryVector { components: vector });
+                        batch_payloads.push(payload);
+                    }
+                    akidb_storage::WalRecord::Delete { primary_key, .. } => {
+                        // TODO: Handle deletes (Phase 3 M3)
+                        warn!("Skipping WAL delete record for key: {}", primary_key);
+                    }
+                    akidb_storage::WalRecord::UpsertPayload { primary_key, .. } => {
+                        // TODO: Handle upserts (Phase 3 M3)
+                        warn!("Skipping WAL upsert record for key: {}", primary_key);
+                    }
+                }
+            }
+
+            // Add batch to index and metadata store if we have vectors
+            if !batch_vectors.is_empty() {
+                let batch_count = batch_vectors.len();
+                let doc_id_start = global_vector_index as u32;
+
+                let batch = IndexBatch {
+                    primary_keys: batch_keys,
+                    vectors: batch_vectors,
+                    payloads: batch_payloads.clone(),
+                };
+
+                // Add to index
+                index_provider.add_batch(&index_handle, batch).await?;
+
+                // Index metadata for each vector
+                for (idx, payload) in batch_payloads.iter().enumerate() {
+                    metadata_store
+                        .index_metadata(name, doc_id_start + idx as u32, payload)
+                        .await?;
+                }
+
+                global_vector_index += batch_count;
+                total_replayed += batch_count;
+
+                debug!(
+                    "Replayed batch of {} WAL records for '{}' (total: {})",
+                    batch_count, name, total_replayed
+                );
+            }
+        }
+
+        info!(
+            "Successfully replayed {} WAL records into index for collection '{}'",
+            total_replayed, name
+        );
+    } else {
+        debug!("No uncommitted WAL records for '{}'", name);
+    }
+
+    // Calculate final next_doc_id accounting for both segments and WAL records
+    let manifest_total = usize::try_from(manifest.total_vectors).unwrap_or(usize::MAX);
+    let doc_count = std::cmp::max(global_vector_index, manifest_total);
+    let next_doc_id = u32::try_from(doc_count).map_err(|_| {
+        Error::Validation(format!(
+            "Collection '{}' exceeds supported document capacity (u32::MAX)",
+            name
+        ))
+    })?;
+
     Ok(CollectionMetadata {
         descriptor: Arc::new(descriptor),
         manifest,
         index_handle: Some(index_handle),
+        next_doc_id: Arc::new(AtomicU32::new(next_doc_id)),
+        wal_stream_id,
+        epoch: Arc::new(AtomicU64::new(0)),
     })
 }
 
@@ -228,7 +377,15 @@ pub async fn bootstrap_collections(state: &AppState) -> Result<()> {
     for name in collection_names {
         info!("Loading collection: {}", name);
 
-        match load_collection(&name, state.storage.as_ref(), state.index_provider.as_ref()).await {
+        match load_collection(
+            &name,
+            state.storage.as_ref(),
+            state.index_provider.as_ref(),
+            state.metadata_store.as_ref(),
+            state.wal.as_ref(),
+        )
+        .await
+        {
             Ok(metadata) => {
                 // Register collection in state
                 if let Err(e) = state
@@ -236,6 +393,8 @@ pub async fn bootstrap_collections(state: &AppState) -> Result<()> {
                         name.clone(),
                         metadata.descriptor.clone(),
                         metadata.manifest.clone(),
+                        metadata.next_doc_id.load(Ordering::SeqCst),
+                        metadata.wal_stream_id,
                     )
                     .await
                 {
@@ -280,17 +439,38 @@ pub async fn bootstrap_collections(state: &AppState) -> Result<()> {
 mod tests {
     use super::*;
     use akidb_index::NativeIndexProvider;
-    use akidb_query::{BasicQueryPlanner, SimpleExecutionEngine};
-    use akidb_storage::MemoryStorageBackend;
+    use akidb_query::{
+        BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner,
+        SimpleExecutionEngine,
+    };
+    use akidb_storage::{MemoryMetadataStore, MemoryStorageBackend, S3WalBackend};
     use std::sync::Arc;
 
     fn create_test_state() -> AppState {
         let storage = Arc::new(MemoryStorageBackend::new());
         let index_provider = Arc::new(NativeIndexProvider::new());
-        let planner = Arc::new(BasicQueryPlanner::new());
-        let engine = Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+        let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+        let engine: Arc<dyn ExecutionEngine> =
+            Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+        let metadata_store: Arc<dyn akidb_storage::MetadataStore> =
+            Arc::new(MemoryMetadataStore::new());
+        let batch_engine = Arc::new(BatchExecutionEngine::new(
+            Arc::clone(&engine),
+            Arc::clone(&metadata_store),
+        ));
+        let wal = Arc::new(S3WalBackend::new_unchecked(storage.clone()));
+        let query_cache = Arc::new(crate::query_cache::QueryCache::default());
 
-        AppState::new(storage, index_provider, planner, engine)
+        AppState::new(
+            storage,
+            index_provider,
+            planner,
+            engine,
+            batch_engine,
+            metadata_store,
+            wal,
+            query_cache,
+        )
     }
 
     #[tokio::test]

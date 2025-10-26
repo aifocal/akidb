@@ -1,3 +1,9 @@
+pub mod auth;
+pub mod metrics;
+
+pub use auth::{auth_middleware, AuthConfig};
+pub use metrics::track_metrics;
+
 use tower::layer::Layer;
 
 /// Placeholder API layer providing a hook for shared middleware.

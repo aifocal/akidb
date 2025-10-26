@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tokio::sync::OnceCell;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use akidb_core::{Error, Result};
@@ -70,10 +71,10 @@ pub enum WalRecord {
 
 /// WAL entry with LSN and timestamp
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct WalEntry {
-    lsn: LogSequence,
-    timestamp: chrono::DateTime<chrono::Utc>,
-    record: WalRecord,
+pub struct WalEntry {
+    pub lsn: LogSequence,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub record: WalRecord,
 }
 
 /// Aggregated statistics returned by WAL replay routines.
@@ -94,7 +95,14 @@ pub trait WalAppender: Send + Sync {
 #[async_trait]
 pub trait WalReplayer: Send + Sync {
     async fn replay(&self, stream: WalStreamId, since: Option<LogSequence>) -> Result<ReplayStats>;
-    async fn next_batch(&self, stream: WalStreamId, max_bytes: usize) -> Result<Vec<Bytes>>;
+    /// Fetch next batch of WAL entries, optionally starting from a specific LSN.
+    /// Returns entries with LSN > since_lsn (or all entries if since_lsn is None).
+    async fn next_batch(
+        &self,
+        stream: WalStreamId,
+        max_bytes: usize,
+        since_lsn: Option<LogSequence>,
+    ) -> Result<Vec<Bytes>>;
 }
 
 /// Recovery statistics returned after crash recovery.
@@ -122,14 +130,92 @@ pub struct S3WalBackend {
     lsn_counters: Arc<RwLock<HashMap<WalStreamId, LogSequence>>>,
     // In-memory buffer before syncing to S3
     buffers: Arc<RwLock<HashMap<WalStreamId, Vec<WalEntry>>>>,
+    // Initialization guard: ensures recover() was called before use
+    initialized: Arc<OnceCell<()>>,
+}
+
+/// Builder for S3WalBackend that ensures proper initialization
+pub struct S3WalBackendBuilder {
+    storage: Arc<dyn crate::backend::StorageBackend>,
+}
+
+impl S3WalBackendBuilder {
+    /// Create a new builder for S3WalBackend
+    pub fn new(storage: Arc<dyn crate::backend::StorageBackend>) -> Self {
+        Self { storage }
+    }
+
+    /// Build the S3WalBackend with automatic LSN recovery from S3
+    ///
+    /// This method constructs the backend and immediately calls recover() to
+    /// initialize LSN counters from existing WAL data in S3. This ensures
+    /// that subsequent append() operations will not overwrite existing data.
+    pub async fn build(self) -> Result<S3WalBackend> {
+        let backend = S3WalBackend::new_unchecked(self.storage);
+
+        // Recover LSN counters from S3
+        let stats = backend.recover().await?;
+        info!(
+            "WAL backend initialized: recovered {} streams with {} total entries",
+            stats.streams_recovered, stats.total_entries
+        );
+
+        // Mark as initialized
+        backend
+            .initialized
+            .set(())
+            .expect("initialized should only be set once");
+
+        Ok(backend)
+    }
 }
 
 impl S3WalBackend {
-    pub fn new(storage: Arc<dyn crate::backend::StorageBackend>) -> Self {
+    /// Create a new S3WalBackend instance.
+    ///
+    /// **IMPORTANT**: This is the recommended way to create an S3WalBackend:
+    /// ```no_run
+    /// # use akidb_storage::S3WalBackend;
+    /// # use std::sync::Arc;
+    /// # async fn example(storage: Arc<dyn akidb_storage::StorageBackend>) -> akidb_core::Result<()> {
+    /// let wal = S3WalBackend::builder(storage).build().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// This ensures LSN counters are properly recovered from S3 before use.
+    /// Direct use of new_unchecked() is only for testing scenarios.
+    pub fn builder(storage: Arc<dyn crate::backend::StorageBackend>) -> S3WalBackendBuilder {
+        S3WalBackendBuilder::new(storage)
+    }
+
+    /// Create a new unchecked S3WalBackend without recovery.
+    ///
+    /// **WARNING**: This constructor does NOT recover LSN counters from S3.
+    /// Using this directly can cause data loss by overwriting existing WAL entries.
+    ///
+    /// Only use this for:
+    /// - Tests that simulate empty storage
+    /// - Tests that manually call recover()
+    ///
+    /// For production use, always use `S3WalBackend::builder(storage).build().await?`
+    pub fn new_unchecked(storage: Arc<dyn crate::backend::StorageBackend>) -> Self {
         Self {
             storage,
             lsn_counters: Arc::new(RwLock::new(HashMap::new())),
             buffers: Arc::new(RwLock::new(HashMap::new())),
+            initialized: Arc::new(OnceCell::new()),
+        }
+    }
+
+    /// Check if the backend has been properly initialized
+    fn check_initialized(&self) {
+        if self.initialized.get().is_none() {
+            warn!(
+                "S3WalBackend used without initialization! \
+                 LSN counters may not be recovered from S3. \
+                 Use S3WalBackend::builder(storage).build().await? instead of new_unchecked()."
+            );
         }
     }
 
@@ -205,6 +291,9 @@ impl S3WalBackend {
 #[async_trait]
 impl WalAppender for S3WalBackend {
     async fn append(&self, stream: WalStreamId, record: WalRecord) -> Result<LogSequence> {
+        // Check if properly initialized
+        self.check_initialized();
+
         let lsn = self.next_lsn(stream);
 
         let entry = WalEntry {
@@ -227,6 +316,9 @@ impl WalAppender for S3WalBackend {
     }
 
     async fn sync(&self, stream: WalStreamId) -> Result<()> {
+        // Check if properly initialized
+        self.check_initialized();
+
         info!("Syncing WAL stream {}", stream.0);
 
         // Get buffered entries
@@ -293,10 +385,15 @@ impl WalReplayer for S3WalBackend {
         })
     }
 
-    async fn next_batch(&self, stream: WalStreamId, max_bytes: usize) -> Result<Vec<Bytes>> {
+    async fn next_batch(
+        &self,
+        stream: WalStreamId,
+        max_bytes: usize,
+        since_lsn: Option<LogSequence>,
+    ) -> Result<Vec<Bytes>> {
         debug!(
-            "Fetching next batch (max {} bytes) from stream {}",
-            max_bytes, stream.0
+            "Fetching next batch (max {} bytes, since LSN {:?}) from stream {}",
+            max_bytes, since_lsn, stream.0
         );
 
         // Load entries
@@ -306,6 +403,13 @@ impl WalReplayer for S3WalBackend {
         let mut current_bytes = 0;
 
         for entry in entries {
+            // Skip entries with LSN <= since_lsn
+            if let Some(since) = since_lsn {
+                if entry.lsn <= since {
+                    continue;
+                }
+            }
+
             let data = serde_json::to_vec(&entry)
                 .map_err(|e| Error::Storage(format!("Failed to serialize entry: {}", e)))?;
 
@@ -319,9 +423,10 @@ impl WalReplayer for S3WalBackend {
         }
 
         debug!(
-            "Returning batch of {} entries ({} bytes)",
+            "Returning batch of {} entries ({} bytes) from stream {}",
             batch.len(),
-            current_bytes
+            current_bytes,
+            stream.0
         );
         Ok(batch)
     }
@@ -544,7 +649,7 @@ mod integration_tests {
             None => return, // Skip test if MinIO not available
         };
 
-        let wal = S3WalBackend::new(storage.clone());
+        let wal = S3WalBackend::new_unchecked(storage.clone());
         let stream = WalStreamId::new();
 
         // Append some records
@@ -584,7 +689,7 @@ mod integration_tests {
             None => return,
         };
 
-        let wal = S3WalBackend::new(storage.clone());
+        let wal = S3WalBackend::new_unchecked(storage.clone());
         let stream = WalStreamId::new();
 
         // Add and sync some records
@@ -617,7 +722,7 @@ mod integration_tests {
         };
 
         // Create first WAL and add records
-        let wal1 = S3WalBackend::new(storage.clone());
+        let wal1 = S3WalBackend::new_unchecked(storage.clone());
         let stream1 = WalStreamId::new();
         let stream2 = WalStreamId::new();
 
@@ -646,7 +751,7 @@ mod integration_tests {
         wal1.sync(stream2).await.unwrap();
 
         // Create new WAL backend (simulating restart)
-        let wal2 = S3WalBackend::new(storage.clone());
+        let wal2 = S3WalBackend::new_unchecked(storage.clone());
 
         // Recover
         let stats = wal2.recover().await.unwrap();
@@ -681,7 +786,7 @@ mod integration_tests {
             None => return,
         };
 
-        let wal = S3WalBackend::new(storage.clone());
+        let wal = S3WalBackend::new_unchecked(storage.clone());
         let stream = WalStreamId::new();
 
         // Add many records
@@ -696,8 +801,8 @@ mod integration_tests {
         }
         wal.sync(stream).await.unwrap();
 
-        // Fetch batch with size limit
-        let batch = wal.next_batch(stream, 1024).await.unwrap();
+        // Fetch batch with size limit (no LSN filter)
+        let batch = wal.next_batch(stream, 1024, None).await.unwrap();
 
         // Should get at least one entry, but not all
         assert!(!batch.is_empty());

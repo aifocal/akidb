@@ -3,11 +3,15 @@
 //! These tests verify the complete data flow from API to Storage,
 //! including SEGv1 binary format serialization.
 
-use akidb_api::{build_router, AppState};
+use akidb_api::{build_router_with_auth, AppState, AuthConfig};
 use akidb_core::{DistanceMetric, PayloadSchema, SegmentDescriptor, SegmentState};
 use akidb_index::NativeIndexProvider;
-use akidb_query::{BasicQueryPlanner, SimpleExecutionEngine};
-use akidb_storage::{MemoryStorageBackend, SegmentData, StorageBackend};
+use akidb_query::{
+    BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
+};
+use akidb_storage::{MetadataStore, 
+    MemoryMetadataStore, MemoryStorageBackend, S3WalBackend, SegmentData, StorageBackend,
+};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -22,17 +26,34 @@ use uuid::Uuid;
 fn create_test_state() -> AppState {
     let storage = Arc::new(MemoryStorageBackend::new());
     let index_provider = Arc::new(NativeIndexProvider::new());
-    let planner = Arc::new(BasicQueryPlanner::new());
-    let engine = Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let metadata_store: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine),
+        Arc::clone(&metadata_store),
+    ));
+    let wal = Arc::new(S3WalBackend::new_unchecked(storage.clone()));
+    let query_cache = Arc::new(akidb_api::query_cache::QueryCache::default());
 
-    AppState::new(storage, index_provider, planner, engine)
+    AppState::new(
+        storage,
+        index_provider,
+        planner,
+        engine,
+        batch_engine,
+        metadata_store,
+        wal,
+        query_cache,
+    )
 }
 
 #[tokio::test]
 async fn test_e2e_api_flow() {
     // Initialize test environment
     let state = create_test_state();
-    let app = build_router(state.clone());
+    let app = build_router_with_auth(state.clone(), AuthConfig::disabled());
 
     // 1. Create collection
     let create_req = json!({
@@ -139,6 +160,7 @@ async fn test_e2e_storage_persistence_with_segv1() {
         replication: 1,
         shard_count: 1,
         payload_schema: PayloadSchema { fields: vec![] },
+        wal_stream_id: None,
     };
 
     storage.create_collection(&collection).await.unwrap();
@@ -240,7 +262,7 @@ async fn test_e2e_segv1_format_roundtrip() {
 #[tokio::test]
 async fn test_e2e_error_handling() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // 1. Try to insert into non-existent collection
     let insert_req = json!({
@@ -350,7 +372,7 @@ async fn test_e2e_error_handling() {
 #[tokio::test]
 async fn test_e2e_large_batch_insert() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // 1. Create collection
     let create_req = json!({
@@ -453,6 +475,7 @@ async fn test_concurrent_manifest_updates() {
         replication: 1,
         shard_count: 1,
         payload_schema: PayloadSchema { fields: vec![] },
+        wal_stream_id: None,
     };
 
     storage.create_collection(&collection).await.unwrap();

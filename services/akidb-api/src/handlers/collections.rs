@@ -6,6 +6,7 @@ use akidb_core::{
     manifest::CollectionManifest,
     Error,
 };
+use akidb_storage::WalStreamId;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -79,7 +80,10 @@ pub async fn create_collection(
         )));
     }
 
-    // Create collection descriptor
+    // Create WAL stream for this collection
+    let wal_stream_id = WalStreamId::new();
+
+    // Create collection descriptor with WAL stream ID
     let descriptor = Arc::new(CollectionDescriptor {
         name: req.name.clone(),
         vector_dim: req.vector_dim,
@@ -87,6 +91,7 @@ pub async fn create_collection(
         replication: req.replication,
         shard_count: req.shard_count,
         payload_schema: req.payload_schema,
+        wal_stream_id: Some(wal_stream_id.0), // Persist WAL stream ID
     });
 
     // Create empty manifest
@@ -113,7 +118,13 @@ pub async fn create_collection(
 
     // Register in app state
     state
-        .register_collection(req.name.clone(), descriptor.clone(), manifest.clone())
+        .register_collection(
+            req.name.clone(),
+            descriptor.clone(),
+            manifest.clone(),
+            0,
+            wal_stream_id,
+        )
         .await
         .map_err(ApiError::Internal)?;
 

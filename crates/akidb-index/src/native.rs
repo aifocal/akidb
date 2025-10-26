@@ -160,11 +160,30 @@ impl VectorStore {
             .collect();
 
         // Sort by score (ascending for L2/Cosine, descending for Dot)
+        // Handle NaN values: treat NaN as worst possible score
         scored.sort_by(|a, b| {
             if matches!(self.distance, DistanceMetric::Dot) {
-                b.1.partial_cmp(&a.1).unwrap()
+                // For Dot product (higher is better), NaN goes to end
+                b.1.partial_cmp(&a.1).unwrap_or_else(|| {
+                    if a.1.is_nan() && b.1.is_nan() {
+                        std::cmp::Ordering::Equal
+                    } else if a.1.is_nan() {
+                        std::cmp::Ordering::Greater // a is worse
+                    } else {
+                        std::cmp::Ordering::Less // b is worse
+                    }
+                })
             } else {
-                a.1.partial_cmp(&b.1).unwrap()
+                // For L2/Cosine (lower is better), NaN goes to end
+                a.1.partial_cmp(&b.1).unwrap_or_else(|| {
+                    if a.1.is_nan() && b.1.is_nan() {
+                        std::cmp::Ordering::Equal
+                    } else if a.1.is_nan() {
+                        std::cmp::Ordering::Greater // a is worse
+                    } else {
+                        std::cmp::Ordering::Less // b is worse
+                    }
+                })
             }
         });
 
@@ -308,12 +327,8 @@ impl IndexProvider for NativeIndexProvider {
 
         let index_id = Uuid::new_v4();
 
-        // Determine dimension from segments (if available)
-        let dimension = request
-            .segments
-            .first()
-            .map(|seg| seg.vector_dim)
-            .unwrap_or(0) as usize;
+        // Use dimension from request (always provided now)
+        let dimension = request.dimension as usize;
 
         if dimension == 0 {
             return Err(Error::Validation(
@@ -484,6 +499,7 @@ mod tests {
             collection: "test".to_string(),
             kind: IndexKind::Native,
             distance: DistanceMetric::Cosine,
+            dimension: 0,
             segments: vec![],
         };
 
@@ -500,6 +516,7 @@ mod tests {
             collection: "test".to_string(),
             kind: IndexKind::Native,
             distance: DistanceMetric::Cosine,
+            dimension: 3,
             segments: vec![akidb_core::segment::SegmentDescriptor {
                 segment_id: Uuid::new_v4(),
                 collection: "test".to_string(),
@@ -558,6 +575,7 @@ mod tests {
             collection: "test".to_string(),
             kind: IndexKind::Native,
             distance: DistanceMetric::L2,
+            dimension: 2,
             segments: vec![akidb_core::segment::SegmentDescriptor {
                 segment_id: Uuid::new_v4(),
                 collection: "test".to_string(),

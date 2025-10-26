@@ -28,6 +28,7 @@ pub struct BuildRequest {
     pub collection: String,
     pub kind: IndexKind,
     pub distance: DistanceMetric,
+    pub dimension: u16,
     pub segments: Vec<SegmentDescriptor>,
 }
 

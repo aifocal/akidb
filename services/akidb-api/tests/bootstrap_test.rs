@@ -3,8 +3,10 @@
 use akidb_api::{bootstrap, AppState};
 use akidb_core::collection::{CollectionDescriptor, DistanceMetric, PayloadSchema};
 use akidb_index::NativeIndexProvider;
-use akidb_query::{BasicQueryPlanner, SimpleExecutionEngine};
-use akidb_storage::MemoryStorageBackend;
+use akidb_query::{
+    BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
+};
+use akidb_storage::{MetadataStore, MemoryMetadataStore, MemoryStorageBackend, S3WalBackend};
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
@@ -12,9 +14,26 @@ use std::sync::Arc;
 /// Helper to create AppState for testing
 fn create_test_state(storage: Arc<MemoryStorageBackend>) -> AppState {
     let index_provider = Arc::new(NativeIndexProvider::new());
-    let planner = Arc::new(BasicQueryPlanner::new());
-    let engine = Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
-    AppState::new(storage, index_provider, planner, engine)
+    let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let metadata_store: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine),
+        Arc::clone(&metadata_store),
+    ));
+    let wal = Arc::new(S3WalBackend::new_unchecked(storage.clone()));
+    let query_cache = Arc::new(akidb_api::query_cache::QueryCache::default());
+    AppState::new(
+        storage,
+        index_provider,
+        planner,
+        engine,
+        batch_engine,
+        metadata_store,
+        wal,
+        query_cache,
+    )
 }
 
 /// Helper to create a collection with vectors
@@ -32,6 +51,7 @@ async fn create_and_populate_collection(
         replication: 1,
         shard_count: 1,
         payload_schema: PayloadSchema::default(),
+        wal_stream_id: None,
     };
 
     // Create manifest
@@ -49,7 +69,13 @@ async fn create_and_populate_collection(
     };
 
     state
-        .register_collection(name.to_string(), Arc::new(descriptor.clone()), manifest)
+        .register_collection(
+            name.to_string(),
+            Arc::new(descriptor.clone()),
+            manifest,
+            0,
+            akidb_storage::WalStreamId::new(),
+        )
         .await?;
 
     // This is a placeholder - in real implementation, we would:

@@ -43,10 +43,12 @@ pub struct S3Config {
     pub multipart_threshold: usize,
     /// Size of each part in multipart upload (default 16MB)
     pub part_size: usize,
-    /// Retry configuration
-    pub retry_config: RetryConfig,
+    /// Retry configuration (legacy, use manifest_retry_config instead)
+    pub retry_config: S3RetryConfig,
     /// Circuit breaker configuration (optional, uses defaults if not provided)
     pub circuit_breaker_config: Option<CircuitBreakerConfig>,
+    /// Manifest operation retry configuration (optional, uses defaults if not provided)
+    pub manifest_retry_config: Option<akidb_core::RetryConfig>,
 }
 
 impl Default for S3Config {
@@ -60,15 +62,16 @@ impl Default for S3Config {
             timeout_ms: 30_000,                    // 30 seconds
             multipart_threshold: 64 * 1024 * 1024, // 64MB
             part_size: 16 * 1024 * 1024,           // 16MB
-            retry_config: RetryConfig::default(),
-            circuit_breaker_config: None,          // Use defaults if not provided
+            retry_config: S3RetryConfig::default(),
+            circuit_breaker_config: None, // Use defaults if not provided
+            manifest_retry_config: None,  // Use defaults if not provided
         }
     }
 }
 
-/// Retry configuration for S3 operations
+/// Retry configuration for S3 operations (legacy)
 #[derive(Debug, Clone)]
-pub struct RetryConfig {
+pub struct S3RetryConfig {
     /// Maximum number of retry attempts
     pub max_attempts: u32,
     /// Initial delay in milliseconds
@@ -81,7 +84,7 @@ pub struct RetryConfig {
     pub jitter_percent: f64,
 }
 
-impl Default for RetryConfig {
+impl Default for S3RetryConfig {
     fn default() -> Self {
         Self {
             max_attempts: 5,
@@ -224,10 +227,7 @@ pub struct S3StorageBackend {
 impl S3StorageBackend {
     fn from_object_store(config: S3Config, client: Arc<dyn ObjectStore>) -> Self {
         // Use configured circuit breaker settings or defaults
-        let cb_config = config
-            .circuit_breaker_config
-            .clone()
-            .unwrap_or_default();
+        let cb_config = config.circuit_breaker_config.clone().unwrap_or_default();
 
         let circuit_breaker = Arc::new(CircuitBreaker::new(
             cb_config.failure_threshold,
@@ -528,7 +528,11 @@ impl S3StorageBackend {
 
         // Create segment data with optional metadata (do this once before the loop)
         let segment_data = if let Some(ref metadata_block) = metadata {
-            SegmentData::with_metadata(descriptor.vector_dim as u32, vectors.clone(), metadata_block.clone())?
+            SegmentData::with_metadata(
+                descriptor.vector_dim as u32,
+                vectors.clone(),
+                metadata_block.clone(),
+            )?
         } else {
             SegmentData::new(descriptor.vector_dim as u32, vectors.clone())?
         };
@@ -543,7 +547,16 @@ impl S3StorageBackend {
             .await?;
 
         // Retry loop for optimistic locking on manifest update
-        const MAX_RETRIES: u32 = 10;
+        let retry_config =
+            self.config
+                .manifest_retry_config
+                .clone()
+                .unwrap_or(akidb_core::RetryConfig {
+                    max_attempts: 20,
+                    initial_backoff_ms: 50,
+                    max_backoff_ms: 2000,
+                    backoff_multiplier: 2.0,
+                });
         let mut retry_count = 0;
 
         loop {
@@ -609,24 +622,20 @@ impl S3StorageBackend {
                 }
                 Err(Error::Conflict(_)) => {
                     retry_count += 1;
-                    if retry_count >= MAX_RETRIES {
+                    if retry_count >= retry_config.max_attempts {
                         // Clean up uploaded segment on final failure
                         let _ = self.delete_object_internal(&seg_key).await;
                         return Err(Error::Conflict(format!(
                             "Failed to write segment {} after {} retries due to manifest conflicts",
-                            descriptor.segment_id, MAX_RETRIES
+                            descriptor.segment_id, retry_config.max_attempts
                         )));
                     }
                     warn!(
                         "Manifest version conflict when writing segment {}, retry {}/{}",
-                        descriptor.segment_id, retry_count, MAX_RETRIES
+                        descriptor.segment_id, retry_count, retry_config.max_attempts
                     );
-                    // Exponential backoff with overflow protection
-                    let delay = 10u64
-                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
-                        .min(300_000); // Max 5 minutes
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
-                        .await;
+                    // Exponential backoff with configured parameters
+                    tokio::time::sleep(retry_config.backoff_for_attempt(retry_count)).await;
                     continue;
                 }
                 Err(e) => {
@@ -808,7 +817,16 @@ impl StorageBackend for S3StorageBackend {
             .ok_or_else(|| Error::NotFound(format!("Segment {} not found", segment_id)))?;
 
         // Retry loop for optimistic locking
-        const MAX_RETRIES: u32 = 10;
+        let retry_config =
+            self.config
+                .manifest_retry_config
+                .clone()
+                .unwrap_or(akidb_core::RetryConfig {
+                    max_attempts: 20,
+                    initial_backoff_ms: 50,
+                    max_backoff_ms: 2000,
+                    backoff_multiplier: 2.0,
+                });
         let mut retry_count = 0;
 
         loop {
@@ -859,22 +877,18 @@ impl StorageBackend for S3StorageBackend {
                 }
                 Err(Error::Conflict(_)) => {
                     retry_count += 1;
-                    if retry_count >= MAX_RETRIES {
+                    if retry_count >= retry_config.max_attempts {
                         return Err(Error::Conflict(format!(
                             "Failed to seal segment {} after {} retries due to manifest conflicts",
-                            segment_id, MAX_RETRIES
+                            segment_id, retry_config.max_attempts
                         )));
                     }
                     warn!(
                         "Manifest version conflict when sealing segment {}, retry {}/{}",
-                        segment_id, retry_count, MAX_RETRIES
+                        segment_id, retry_count, retry_config.max_attempts
                     );
-                    // Exponential backoff with overflow protection
-                    let delay = 10u64
-                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
-                        .min(300_000); // Max 5 minutes
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
-                        .await;
+                    // Exponential backoff with configured parameters
+                    tokio::time::sleep(retry_config.backoff_for_attempt(retry_count)).await;
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -1022,6 +1036,7 @@ mod tests {
             replication: 1,
             shard_count: 1,
             payload_schema: PayloadSchema::default(),
+            wal_stream_id: None,
         }
     }
 
@@ -1176,7 +1191,10 @@ mod tests {
 
         let manifest_v2 = backend.load_manifest("test_coll").await.unwrap();
         let version_2 = manifest_v2.latest_version;
-        assert!(version_2 > version_1, "Version should increment on first seal");
+        assert!(
+            version_2 > version_1,
+            "Version should increment on first seal"
+        );
 
         // 3. Seal again (idempotent) - should not increment version
         backend.seal_segment(descriptor.segment_id).await.unwrap();

@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Root configuration structure for AkiDB
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AkidbConfig {
     #[serde(default)]
     pub storage: StorageConfig,
@@ -66,7 +66,9 @@ impl AkidbConfig {
     }
 
     /// Set default values for all configuration options
-    fn set_defaults(builder: config::ConfigBuilder<config::builder::DefaultState>) -> Result<config::ConfigBuilder<config::builder::DefaultState>, ConfigError> {
+    fn set_defaults(
+        builder: config::ConfigBuilder<config::builder::DefaultState>,
+    ) -> Result<config::ConfigBuilder<config::builder::DefaultState>, ConfigError> {
         builder
             // Storage: Circuit Breaker
             .set_default("storage.circuit_breaker.failure_threshold", 5)?
@@ -151,17 +153,6 @@ impl AkidbConfig {
             .try_deserialize()?;
 
         Ok(config)
-    }
-}
-
-impl Default for AkidbConfig {
-    fn default() -> Self {
-        Self {
-            storage: StorageConfig::default(),
-            index: IndexConfig::default(),
-            api: ApiConfig::default(),
-            query: QueryConfig::default(),
-        }
     }
 }
 
@@ -267,22 +258,13 @@ impl RetryConfig {
 }
 
 /// Index provider configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct IndexConfig {
     #[serde(default)]
     pub hnsw: HnswIndexConfig,
 
     #[serde(default)]
     pub native: NativeIndexConfig,
-}
-
-impl Default for IndexConfig {
-    fn default() -> Self {
-        Self {
-            hnsw: HnswIndexConfig::default(),
-            native: NativeIndexConfig::default(),
-        }
-    }
 }
 
 /// HNSW index configuration
@@ -326,18 +308,10 @@ impl Default for NativeIndexConfig {
 }
 
 /// API configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ApiConfig {
     #[serde(default)]
     pub validation: ValidationConfig,
-}
-
-impl Default for ApiConfig {
-    fn default() -> Self {
-        Self {
-            validation: ValidationConfig::default(),
-        }
-    }
 }
 
 /// API validation limits

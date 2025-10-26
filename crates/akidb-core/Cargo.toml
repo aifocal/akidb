@@ -14,3 +14,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+
+# Phase 3 M4: Production Monitoring
+prometheus = { workspace = true }
+once_cell = { workspace = true }

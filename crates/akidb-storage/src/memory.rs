@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use akidb_core::{CollectionDescriptor, CollectionManifest, Result, SegmentDescriptor};
+use akidb_core::{
+    CollectionDescriptor, CollectionManifest, Result, RetryConfig, SegmentDescriptor,
+};
 
 use crate::backend::{StorageBackend, StorageStatus};
 use crate::segment_format::SegmentData;
@@ -27,19 +29,35 @@ struct MemorySegmentPayload {
 struct MemoryMetadataPayload {
     format: String,      // "arrow-ipc"
     compression: String, // "none" or "zstd"
-    data: Vec<u8>,      // Raw Arrow IPC bytes
+    data: Vec<u8>,       // Raw Arrow IPC bytes
 }
 
 /// In-memory storage backend (for testing)
 #[derive(Clone)]
 pub struct MemoryStorageBackend {
     objects: Arc<RwLock<HashMap<String, Bytes>>>,
+    /// Retry configuration for manifest operations (optional, uses defaults if not provided)
+    manifest_retry_config: RetryConfig,
 }
 
 impl MemoryStorageBackend {
     pub fn new() -> Self {
         Self {
             objects: Arc::new(RwLock::new(HashMap::new())),
+            manifest_retry_config: RetryConfig {
+                max_attempts: 20,
+                initial_backoff_ms: 50,
+                max_backoff_ms: 2000,
+                backoff_multiplier: 2.0,
+            },
+        }
+    }
+
+    /// Create a new instance with custom retry configuration
+    pub fn with_retry_config(retry_config: RetryConfig) -> Self {
+        Self {
+            objects: Arc::new(RwLock::new(HashMap::new())),
+            manifest_retry_config: retry_config,
         }
     }
 
@@ -168,8 +186,8 @@ impl StorageBackend for MemoryStorageBackend {
             })?
         };
 
-        // Retry loop for optimistic locking
-        const MAX_RETRIES: u32 = 10;
+        // Retry loop for optimistic locking with configurable retry behavior
+        let retry_config = &self.manifest_retry_config;
         let mut retry_count = 0;
 
         loop {
@@ -218,18 +236,14 @@ impl StorageBackend for MemoryStorageBackend {
                 }
                 Err(akidb_core::Error::Conflict(_)) => {
                     retry_count += 1;
-                    if retry_count >= MAX_RETRIES {
+                    if retry_count >= retry_config.max_attempts {
                         return Err(akidb_core::Error::Conflict(format!(
                             "Failed to seal segment {} after {} retries due to manifest conflicts",
-                            segment_id, MAX_RETRIES
+                            segment_id, retry_config.max_attempts
                         )));
                     }
-                    // Exponential backoff with overflow protection
-                    let delay = 10u64
-                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
-                        .min(300_000); // Max 5 minutes
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
-                        .await;
+                    // Use configured backoff instead of hardcoded exponential backoff
+                    tokio::time::sleep(retry_config.backoff_for_attempt(retry_count)).await;
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -323,20 +337,16 @@ impl StorageBackend for MemoryStorageBackend {
 
         // Pre-build SegmentData for validation (dimension and metadata row count)
         let _segment_data = if let Some(ref meta) = metadata {
-            SegmentData::with_metadata(
-                descriptor.vector_dim as u32,
-                vectors.clone(),
-                meta.clone(),
-            )?
+            SegmentData::with_metadata(descriptor.vector_dim as u32, vectors.clone(), meta.clone())?
         } else {
             SegmentData::new(descriptor.vector_dim as u32, vectors.clone())?
         };
 
         // Pre-serialize MemorySegmentPayload (do this once before retry loop)
         let payload = if let Some(ref meta) = metadata {
-            let meta_bytes = meta
-                .serialize()
-                .map_err(|e| akidb_core::Error::Storage(format!("Metadata serialization failed: {}", e)))?;
+            let meta_bytes = meta.serialize().map_err(|e| {
+                akidb_core::Error::Storage(format!("Metadata serialization failed: {}", e))
+            })?;
             MemorySegmentPayload {
                 version: 1,
                 dimension: descriptor.vector_dim as u32,
@@ -356,8 +366,9 @@ impl StorageBackend for MemoryStorageBackend {
             }
         };
 
-        let payload_bytes = serde_json::to_vec(&payload)
-            .map_err(|e| akidb_core::Error::Storage(format!("Failed to serialize payload: {}", e)))?;
+        let payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
+            akidb_core::Error::Storage(format!("Failed to serialize payload: {}", e))
+        })?;
 
         // Store payload (do this once before retry loop)
         let seg_key = format!(
@@ -371,8 +382,8 @@ impl StorageBackend for MemoryStorageBackend {
         #[allow(deprecated)]
         self.write_segment(descriptor).await?;
 
-        // Retry loop for optimistic locking on manifest update
-        const MAX_RETRIES: u32 = 10;
+        // Retry loop for optimistic locking on manifest update with configurable retry behavior
+        let retry_config = &self.manifest_retry_config;
         let mut retry_count = 0;
 
         loop {
@@ -433,20 +444,16 @@ impl StorageBackend for MemoryStorageBackend {
                 }
                 Err(akidb_core::Error::Conflict(_)) => {
                     retry_count += 1;
-                    if retry_count >= MAX_RETRIES {
+                    if retry_count >= retry_config.max_attempts {
                         // Clean up uploaded segment on final failure
                         let _ = self.delete_object(&seg_key).await;
                         return Err(akidb_core::Error::Conflict(format!(
                             "Failed to write segment {} after {} retries due to manifest conflicts",
-                            descriptor.segment_id, MAX_RETRIES
+                            descriptor.segment_id, retry_config.max_attempts
                         )));
                     }
-                    // Exponential backoff with overflow protection
-                    let delay = 10u64
-                        .saturating_mul(2u64.saturating_pow(retry_count.min(20)))
-                        .min(300_000); // Max 5 minutes
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
-                        .await;
+                    // Use configured backoff instead of hardcoded exponential backoff
+                    tokio::time::sleep(retry_config.backoff_for_attempt(retry_count)).await;
                     continue;
                 }
                 Err(e) => {

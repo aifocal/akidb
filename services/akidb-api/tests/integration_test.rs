@@ -1,9 +1,11 @@
 //! End-to-end integration tests for AkiDB API
 
-use akidb_api::{build_router, AppState};
+use akidb_api::{build_router_with_auth, AppState, AuthConfig};
 use akidb_index::NativeIndexProvider;
-use akidb_query::{BasicQueryPlanner, SimpleExecutionEngine};
-use akidb_storage::MemoryStorageBackend;
+use akidb_query::{
+    BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
+};
+use akidb_storage::{MetadataStore, MemoryMetadataStore, MemoryStorageBackend, S3WalBackend};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -30,17 +32,34 @@ fn init_tracing() {
 fn create_test_state() -> AppState {
     let storage = Arc::new(MemoryStorageBackend::new());
     let index_provider = Arc::new(NativeIndexProvider::new());
-    let planner = Arc::new(BasicQueryPlanner::new());
-    let engine = Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let metadata_store: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine),
+        Arc::clone(&metadata_store),
+    ));
+    let wal = Arc::new(S3WalBackend::new_unchecked(storage.clone()));
+    let query_cache = Arc::new(akidb_api::query_cache::QueryCache::default());
 
-    AppState::new(storage, index_provider, planner, engine)
+    AppState::new(
+        storage,
+        index_provider,
+        planner,
+        engine,
+        batch_engine,
+        metadata_store,
+        wal,
+        query_cache,
+    )
 }
 
 #[tokio::test]
 async fn test_health_check() {
     init_tracing();
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     let response = app
         .oneshot(
@@ -59,7 +78,7 @@ async fn test_health_check() {
 async fn test_logging_middleware() {
     init_tracing();
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // Make a request to trigger logging
     let response = app
@@ -80,7 +99,7 @@ async fn test_logging_middleware() {
 #[tokio::test]
 async fn test_e2e_create_insert_search() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // 1. Create collection
     let create_req = json!({
@@ -181,7 +200,7 @@ async fn test_e2e_create_insert_search() {
 #[tokio::test]
 async fn test_get_collection() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // Create collection first
     let create_req = json!({
@@ -228,7 +247,7 @@ async fn test_get_collection() {
 #[tokio::test]
 async fn test_collection_not_found() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     let response = app
         .oneshot(
@@ -256,7 +275,7 @@ async fn test_collection_not_found() {
 #[tokio::test]
 async fn test_search_before_insert() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // Create collection
     let create_req = json!({
@@ -301,7 +320,7 @@ async fn test_search_before_insert() {
 #[tokio::test]
 async fn test_list_collections() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // Initially should be empty
     let response = app
@@ -366,7 +385,7 @@ async fn test_list_collections() {
 #[tokio::test]
 async fn test_delete_collection() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     // Create a collection
     let create_req = json!({
@@ -419,7 +438,7 @@ async fn test_delete_collection() {
 #[tokio::test]
 async fn test_delete_nonexistent_collection() {
     let state = create_test_state();
-    let app = build_router(state);
+    let app = build_router_with_auth(state, AuthConfig::disabled());
 
     let response = app
         .oneshot(
@@ -454,6 +473,7 @@ async fn test_concurrent_storage_operations() {
         replication: 1,
         shard_count: 1,
         payload_schema: PayloadSchema { fields: vec![] },
+        wal_stream_id: None,
     };
 
     storage.create_collection(&collection).await.unwrap();
@@ -501,13 +521,21 @@ async fn test_concurrent_storage_operations() {
     );
 
     // 5. Assert all operations succeeded
-    assert!(result_1.is_ok(), "First write should succeed: {:?}", result_1);
+    assert!(
+        result_1.is_ok(),
+        "First write should succeed: {:?}",
+        result_1
+    );
     assert!(
         result_2.is_ok(),
         "Second write should succeed: {:?}",
         result_2
     );
-    assert!(result_3.is_ok(), "Third write should succeed: {:?}", result_3);
+    assert!(
+        result_3.is_ok(),
+        "Third write should succeed: {:?}",
+        result_3
+    );
 
     // 6. Verify manifest contains all segments
     let manifest = storage
@@ -522,8 +550,7 @@ async fn test_concurrent_storage_operations() {
     );
 
     // Verify all segment IDs are present
-    let manifest_segment_ids: Vec<Uuid> =
-        manifest.segments.iter().map(|s| s.segment_id).collect();
+    let manifest_segment_ids: Vec<Uuid> = manifest.segments.iter().map(|s| s.segment_id).collect();
 
     for &expected_id in &segment_ids {
         assert!(
@@ -551,4 +578,279 @@ async fn test_concurrent_storage_operations() {
         manifest.latest_version,
         manifest.segments.len()
     );
+}
+
+#[tokio::test]
+async fn test_multi_batch_ingestion_with_filters() {
+    init_tracing();
+    let state = create_test_state();
+    let app = build_router_with_auth(state, AuthConfig::disabled());
+
+    // 1. Create collection
+    let create_req = json!({
+        "name": "multi_batch_test",
+        "vector_dim": 3,
+        "distance": "Cosine"
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 2. Insert batch 1 (100 vectors with category=A)
+    let mut batch1_vectors = Vec::new();
+    for i in 0..100 {
+        batch1_vectors.push(json!({
+            "id": format!("vec_a_{}", i),
+            "vector": [1.0, 0.0, 0.0],
+            "payload": {"category": "A", "batch": 1}
+        }));
+    }
+
+    let insert_req1 = json!({
+        "vectors": batch1_vectors
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/vectors")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&insert_req1).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "First batch insert should succeed"
+    );
+
+    // 3. Insert batch 2 (100 vectors with category=B)
+    let mut batch2_vectors = Vec::new();
+    for i in 0..100 {
+        batch2_vectors.push(json!({
+            "id": format!("vec_b_{}", i),
+            "vector": [0.0, 1.0, 0.0],
+            "payload": {"category": "B", "batch": 2}
+        }));
+    }
+
+    let insert_req2 = json!({
+        "vectors": batch2_vectors
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/vectors")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&insert_req2).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // This is the critical assertion for P0-2 fix
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Second batch insert should succeed (P0-2 fix verification)"
+    );
+
+    // 4. Insert batch 3 (100 vectors with category=C)
+    let mut batch3_vectors = Vec::new();
+    for i in 0..100 {
+        batch3_vectors.push(json!({
+            "id": format!("vec_c_{}", i),
+            "vector": [0.0, 0.0, 1.0],
+            "payload": {"category": "C", "batch": 3}
+        }));
+    }
+
+    let insert_req3 = json!({
+        "vectors": batch3_vectors
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/vectors")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&insert_req3).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Third batch insert should succeed"
+    );
+
+    // 5. Search to verify all batches are accessible
+    let search_req = json!({
+        "vector": [1.0, 0.0, 0.0],
+        "top_k": 300
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/search")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&search_req).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    if status != StatusCode::OK {
+        let error_text = String::from_utf8_lossy(&body);
+        panic!("Search failed with status {}: {}", status, error_text);
+    }
+
+    let search_response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Verify all 300 vectors are accessible
+    assert_eq!(
+        search_response["count"], 300,
+        "Should be able to access all 300 vectors across 3 batches"
+    );
+
+    // 6. Test filter queries across all batches (P0-1 fix verification)
+    // Filter for category=A (batch 1)
+    let search_req_a = json!({
+        "vector": [1.0, 0.0, 0.0],
+        "top_k": 200,
+        "filter": {
+            "must": [
+                {"field": "category", "match": "A"}
+            ]
+        }
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/search")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&search_req_a).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let filter_response_a: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        filter_response_a["count"], 100,
+        "Filter for category=A should return 100 vectors (P0-1 fix verification)"
+    );
+
+    // Filter for category=B (batch 2)
+    let search_req_b = json!({
+        "vector": [0.0, 1.0, 0.0],
+        "top_k": 200,
+        "filter": {
+            "must": [
+                {"field": "category", "match": "B"}
+            ]
+        }
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/search")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&search_req_b).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let filter_response_b: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        filter_response_b["count"], 100,
+        "Filter for category=B should return 100 vectors (P0-1 fix verification)"
+    );
+
+    // Filter for category=C (batch 3)
+    let search_req_c = json!({
+        "vector": [0.0, 0.0, 1.0],
+        "top_k": 200,
+        "filter": {
+            "must": [
+                {"field": "category", "match": "C"}
+            ]
+        }
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections/multi_batch_test/search")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&search_req_c).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let filter_response_c: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        filter_response_c["count"], 100,
+        "Filter for category=C should return 100 vectors (P0-1 fix verification)"
+    );
+
+    println!("✅ Multi-batch ingestion test passed:");
+    println!("   - 3 batches inserted successfully (300 total vectors)");
+    println!("   - Second insert did not return HTTP 500 (P0-2 fixed)");
+    println!("   - Filters work correctly across all batches (P0-1 fixed)");
+    println!("   - No metadata overwrites detected");
 }

@@ -15,6 +15,14 @@ harness = false
 name = "metadata_ops"
 harness = false
 
+[[bench]]
+name = "simd_distance"
+harness = false
+
+[[bench]]
+name = "hnsw_library_comparison"
+harness = false
+
 [dependencies]
 akidb-core = { path = "../akidb-core" }
 akidb-storage = { path = "../akidb-storage" }
@@ -29,3 +37,5 @@ once_cell = "1.19"
 roaring = "0.10"
 uuid = { workspace = true }
 chrono = { workspace = true }
+hnsw_rs = "0.3"  # No SIMD feature on ARM64 (Apple M2)
+instant-distance = "0.6"  # For PoC comparison

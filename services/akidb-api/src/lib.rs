@@ -2,19 +2,23 @@ pub mod bootstrap;
 pub mod grpc;
 pub mod handlers;
 pub mod middleware;
+pub mod query_cache;
 pub mod rest;
 pub mod state;
 pub mod validation;
 
 pub use grpc::build_grpc_server;
-pub use middleware::ApiLayer;
-pub use rest::build_router;
+pub use middleware::{ApiLayer, AuthConfig};
+pub use rest::{build_router, build_router_with_auth};
 pub use state::AppState;
 
 use akidb_core::{Error, Result};
 use akidb_index::NativeIndexProvider;
-use akidb_query::{BasicQueryPlanner, SimpleExecutionEngine};
-use akidb_storage::MemoryStorageBackend;
+use akidb_query::{
+    BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
+};
+use akidb_storage::{MemoryMetadataStore, MemoryStorageBackend, MetadataStore, S3WalBackend};
+use query_cache::QueryCache;
 use std::sync::Arc;
 use tracing::info;
 
@@ -23,11 +27,32 @@ pub async fn run_server() -> Result<()> {
     // Create components
     let storage = Arc::new(MemoryStorageBackend::new());
     let index_provider = Arc::new(NativeIndexProvider::new());
-    let planner = Arc::new(BasicQueryPlanner::new());
-    let engine = Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider.clone()));
+    let metadata_store: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine),
+        Arc::clone(&metadata_store),
+    ));
+
+    // Create WAL backend with automatic LSN recovery from S3
+    let wal = Arc::new(S3WalBackend::builder(storage.clone()).build().await?);
+
+    // Create query cache (10K capacity, 5 min TTL)
+    let query_cache = Arc::new(QueryCache::default());
 
     // Create app state
-    let state = AppState::new(storage, index_provider, planner, engine);
+    let state = AppState::new(
+        storage,
+        index_provider,
+        planner,
+        engine,
+        batch_engine,
+        metadata_store,
+        wal,
+        query_cache,
+    );
 
     // Bootstrap collections from storage (restart recovery)
     bootstrap::bootstrap_collections(&state).await?;

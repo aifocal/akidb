@@ -6,8 +6,8 @@ use akidb_core::collection::{
 };
 use akidb_core::Result;
 use akidb_index::{
-    BuildRequest, IndexBatch, IndexHandle, IndexKind, IndexProvider, NativeIndexProvider,
-    QueryVector,
+    BuildRequest, HnswConfig, HnswIndexProvider, IndexBatch, IndexHandle, IndexKind, IndexProvider,
+    NativeIndexProvider, QueryVector,
 };
 use once_cell::sync::OnceCell;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -50,6 +50,49 @@ impl Collection {
                     collection: self.name.clone(),
                     kind: IndexKind::Native,
                     distance,
+                    dimension: self.descriptor.vector_dim,
+                    segments: vec![test_segment_descriptor(
+                        &self.name,
+                        self.descriptor.vector_dim,
+                        self.vectors.len(),
+                    )],
+                })
+                .await
+        })?;
+
+        let batch = IndexBatch {
+            primary_keys: (0..self.vectors.len())
+                .map(|i| format!("{}-{}", self.name, i))
+                .collect(),
+            vectors: self
+                .vectors
+                .iter()
+                .map(|components| QueryVector {
+                    components: components.clone(),
+                })
+                .collect(),
+            payloads: self.payloads.as_ref().clone(),
+        };
+
+        runtime.block_on(async { provider.add_batch(&handle, batch).await })?;
+        Ok((provider, handle))
+    }
+
+    /// Build an HNSW index populated with the collection vectors using the desired distance metric.
+    pub fn build_hnsw_index(
+        &self,
+        runtime: &Runtime,
+        distance: DistanceMetric,
+        config: Option<HnswConfig>,
+    ) -> Result<(Arc<HnswIndexProvider>, IndexHandle)> {
+        let provider = Arc::new(HnswIndexProvider::new(config.unwrap_or_default()));
+        let handle = runtime.block_on(async {
+            provider
+                .build(BuildRequest {
+                    collection: self.name.clone(),
+                    kind: IndexKind::Hnsw,
+                    distance,
+                    dimension: self.descriptor.vector_dim,
                     segments: vec![test_segment_descriptor(
                         &self.name,
                         self.descriptor.vector_dim,
@@ -167,6 +210,7 @@ pub fn create_collection_from_arc(
                 Vec::new()
             },
         },
+        wal_stream_id: None,
     };
 
     Collection {

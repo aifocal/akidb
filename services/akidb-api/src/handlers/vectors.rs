@@ -3,11 +3,13 @@
 use crate::{handlers::collections::ApiError, state::AppState, validation};
 use akidb_core::segment::{SegmentDescriptor, SegmentState};
 use akidb_index::{BuildRequest, IndexBatch, QueryVector};
+use akidb_storage::{WalAppender, WalRecord};
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -74,16 +76,31 @@ pub async fn insert_vectors(
             })?;
     }
 
+    let batch_len = req.vectors.len();
+
     // Create segment for tracking
     let segment_id = Uuid::new_v4();
 
     // Validate vector count fits in u32 (segment size limit)
-    let record_count = u32::try_from(req.vectors.len())
-        .map_err(|_| ApiError::Validation(format!(
+    let record_count = u32::try_from(batch_len).map_err(|_| {
+        ApiError::Validation(format!(
             "Vector count {} exceeds maximum segment size of {} (u32::MAX)",
-            req.vectors.len(),
+            batch_len,
             u32::MAX
-        )))?;
+        ))
+    })?;
+
+    // Reserve doc_id range for this batch and detect overflow
+    let start_doc_id = metadata
+        .next_doc_id
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+            current.checked_add(record_count)
+        })
+        .map_err(|_| {
+            ApiError::Validation(
+                "Collection has reached maximum document ID capacity (u32::MAX)".to_string(),
+            )
+        })?;
 
     let segment_descriptor = SegmentDescriptor {
         segment_id,
@@ -96,9 +113,36 @@ pub async fn insert_vectors(
         created_at: chrono::Utc::now(),
     };
 
-    // TODO: Write to WAL
-    // For now, we'll skip WAL and write directly to index
-    debug!("Skipping WAL write for now, writing directly to index");
+    // Write to WAL before modifying any state (durability guarantee)
+    info!(
+        "Writing {} vectors to WAL for collection '{}'",
+        batch_len, collection_name
+    );
+
+    for vec_input in &req.vectors {
+        let wal_record = WalRecord::Insert {
+            collection: collection_name.clone(),
+            primary_key: vec_input.id.clone(),
+            vector: vec_input.vector.clone(),
+            payload: vec_input.payload.clone(),
+        };
+
+        state
+            .wal
+            .append(metadata.wal_stream_id, wal_record)
+            .await
+            .map_err(|e| {
+                ApiError::Internal(akidb_core::Error::Storage(format!(
+                    "WAL append failed: {}",
+                    e
+                )))
+            })?;
+    }
+
+    debug!(
+        "WAL write complete for {} vectors in collection '{}'",
+        batch_len, collection_name
+    );
 
     // Build or update index
     let index_handle = if let Some(handle) = &metadata.index_handle {
@@ -112,6 +156,7 @@ pub async fn insert_vectors(
             collection: collection_name.clone(),
             kind: state.index_provider.kind(),
             distance: metadata.descriptor.distance,
+            dimension: metadata.descriptor.vector_dim,
             segments: vec![segment_descriptor.clone()],
         };
 
@@ -150,6 +195,22 @@ pub async fn insert_vectors(
         .await
         .map_err(ApiError::Internal)?;
 
+    // Index metadata for filter queries using globally reserved doc_id range
+    for (idx, vec_input) in req.vectors.iter().enumerate() {
+        let offset = u32::try_from(idx).expect("idx within u32 range due to validation at line 86");
+        let doc_id = start_doc_id + offset;
+        if let Err(e) = state
+            .metadata_store
+            .index_metadata(&collection_name, doc_id, &vec_input.payload)
+            .await
+        {
+            debug!(
+                "Failed to index metadata for doc_id {}: {} (continuing)",
+                doc_id, e
+            );
+        }
+    }
+
     // Extract vectors and payloads for persistence to S3
     let (vectors, payloads) = state
         .index_provider
@@ -164,8 +225,32 @@ pub async fn insert_vectors(
             payloads.len()
         );
 
+        let start_index = usize::try_from(start_doc_id).map_err(|_| {
+            ApiError::Internal(akidb_core::Error::Storage(
+                "Failed to convert doc_id to index for persistence".to_string(),
+            ))
+        })?;
+        let expected_len = batch_len;
+        let new_vectors: Vec<Vec<f32>> = vectors
+            .into_iter()
+            .skip(start_index)
+            .take(expected_len)
+            .collect();
+        let new_payloads: Vec<serde_json::Value> = payloads
+            .into_iter()
+            .skip(start_index)
+            .take(expected_len)
+            .collect();
+
+        if new_vectors.len() != expected_len || new_payloads.len() != expected_len {
+            return Err(ApiError::Internal(akidb_core::Error::Storage(
+                "Persisted batch size mismatch - index returned inconsistent vector count"
+                    .to_string(),
+            )));
+        }
+
         // Create metadata block from payloads
-        let metadata = akidb_storage::MetadataBlock::from_json(payloads).map_err(|e| {
+        let metadata = akidb_storage::MetadataBlock::from_json(new_payloads).map_err(|e| {
             ApiError::Internal(akidb_core::Error::Storage(format!(
                 "Failed to create metadata: {}",
                 e
@@ -175,26 +260,29 @@ pub async fn insert_vectors(
         // Persist to S3
         state
             .storage
-            .write_segment_with_data(&segment_descriptor, vectors, Some(metadata))
+            .write_segment_with_data(&segment_descriptor, new_vectors, Some(metadata))
             .await
             .map_err(ApiError::Internal)?;
 
         info!(
             "Persisted {} vectors with metadata to S3, segment {}",
-            req.vectors.len(),
-            segment_id
+            batch_len, segment_id
         );
     }
 
+    // Bump collection epoch to invalidate cached queries
+    state
+        .bump_collection_epoch(&collection_name)
+        .await
+        .map_err(ApiError::Internal)?;
+
     info!(
         "Successfully inserted {} vectors into collection '{}', segment {}",
-        req.vectors.len(),
-        collection_name,
-        segment_id
+        batch_len, collection_name, segment_id
     );
 
     Ok(Json(InsertVectorsResponse {
-        inserted: req.vectors.len(),
+        inserted: batch_len,
         segment_id,
     }))
 }

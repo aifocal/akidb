@@ -39,3 +39,15 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry", "fmt", "env-filter"] }
 uuid = { version = "1.6", features = ["serde", "v4"] }
+moka = { version = "0.12", features = ["future"] }
+sha2 = "0.10"
+futures = "0.3"
+
+# Phase 3 M4: Production Monitoring
+prometheus = "0.13"
+once_cell = "1.19"
+hyper = "1.0"
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.14", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.22"

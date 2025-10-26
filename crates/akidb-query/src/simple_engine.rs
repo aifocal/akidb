@@ -123,6 +123,7 @@ mod tests {
             collection: "test".to_string(),
             kind: IndexKind::Native,
             distance: DistanceMetric::Cosine,
+            dimension: 3,
             segments: vec![akidb_core::segment::SegmentDescriptor {
                 segment_id: uuid::Uuid::new_v4(),
                 collection: "test".to_string(),
@@ -191,6 +192,7 @@ mod tests {
             replication: 1,
             shard_count: 1,
             payload_schema: PayloadSchema::default(),
+            wal_stream_id: None,
         });
 
         let ctx = QueryContext {

@@ -6,10 +6,10 @@
 #![allow(clippy::expect_fun_call)]
 
 use akidb_core::{DistanceMetric, SegmentDescriptor, SegmentState};
+use akidb_index::{BuildRequest, IndexBatch, IndexKind};
 use akidb_index::{
     HnswIndexProvider, IndexProvider, NativeIndexProvider, QueryVector, SearchOptions,
 };
-use akidb_index::{BuildRequest, IndexBatch, IndexKind};
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
@@ -18,10 +18,7 @@ use uuid::Uuid;
 fn create_providers() -> Vec<(&'static str, Box<dyn IndexProvider>)> {
     vec![
         ("Native", Box::new(NativeIndexProvider::new())),
-        (
-            "HNSW",
-            Box::new(HnswIndexProvider::new(Default::default())),
-        ),
+        ("HNSW", Box::new(HnswIndexProvider::new(Default::default()))),
     ]
 }
 
@@ -31,6 +28,7 @@ fn create_build_request(dimension: u16, distance: DistanceMetric) -> BuildReques
         collection: "test_collection".to_string(),
         kind: IndexKind::Native, // Kind doesn't matter for these tests
         distance,
+        dimension,
         segments: vec![SegmentDescriptor {
             segment_id: Uuid::new_v4(),
             collection: "test_collection".to_string(),
@@ -52,6 +50,7 @@ async fn contract_reject_zero_dimension() {
             collection: "test".to_string(),
             kind: provider.kind(),
             distance: DistanceMetric::Cosine,
+            dimension: 0,
             segments: vec![],
         };
 
@@ -169,10 +168,7 @@ async fn contract_roundtrip_serialization() {
         let result = provider
             .search(&new_handle, query, options)
             .await
-            .expect(&format!(
-                "{} should search on deserialized index",
-                name
-            ));
+            .expect(&format!("{} should search on deserialized index", name));
 
         assert_eq!(
             result.neighbors.len(),
@@ -195,11 +191,7 @@ async fn contract_extract_for_persistence() {
 
         // Add vectors
         let batch = IndexBatch {
-            primary_keys: vec![
-                "key1".to_string(),
-                "key2".to_string(),
-                "key3".to_string(),
-            ],
+            primary_keys: vec!["key1".to_string(), "key2".to_string(), "key3".to_string()],
             vectors: vec![
                 QueryVector {
                     components: vec![1.0, 0.0, 0.0],
@@ -211,11 +203,7 @@ async fn contract_extract_for_persistence() {
                     components: vec![0.0, 0.0, 1.0],
                 },
             ],
-            payloads: vec![
-                json!({"id": 1}),
-                json!({"id": 2}),
-                json!({"id": 3}),
-            ],
+            payloads: vec![json!({"id": 1}), json!({"id": 2}), json!({"id": 3})],
         };
 
         provider
@@ -368,7 +356,7 @@ async fn contract_batch_consistency() {
             vectors: vec![QueryVector {
                 components: vec![1.0, 0.0],
             }], // Only 1 vector!
-            payloads: vec![json!({"id": 1})], // Only 1 payload!
+            payloads: vec![json!({"id": 1})],                           // Only 1 payload!
         };
 
         let result = provider.add_batch(&handle, inconsistent_batch).await;
@@ -393,9 +381,9 @@ async fn contract_search_result_ordering() {
         // Add vectors with known distances from query [1, 0, 0]
         let batch = IndexBatch {
             primary_keys: vec![
-                "closest".to_string(),    // [1, 0, 0] - distance 0
-                "mid".to_string(),        // [0.5, 0.5, 0] - distance ~0.707
-                "farthest".to_string(),   // [0, 1, 0] - distance ~1.414
+                "closest".to_string(),  // [1, 0, 0] - distance 0
+                "mid".to_string(),      // [0.5, 0.5, 0] - distance ~0.707
+                "farthest".to_string(), // [0, 1, 0] - distance ~1.414
             ],
             vectors: vec![
                 QueryVector {
@@ -501,9 +489,7 @@ async fn hnsw_recall_stress_test() {
     };
 
     for i in 0..VECTOR_COUNT {
-        let components: Vec<f32> = (0..DIMENSION)
-            .map(|_| rng.gen_range(-1.0..1.0))
-            .collect();
+        let components: Vec<f32> = (0..DIMENSION).map(|_| rng.gen_range(-1.0..1.0)).collect();
 
         batch.primary_keys.push(format!("vec_{}", i));
         batch.vectors.push(QueryVector { components });
@@ -516,6 +502,7 @@ async fn hnsw_recall_stress_test() {
         collection: "recall_test".to_string(),
         kind: IndexKind::Native,
         distance: DistanceMetric::L2,
+        dimension: DIMENSION,
         segments: vec![SegmentDescriptor {
             segment_id: Uuid::new_v4(),
             collection: "recall_test".to_string(),
@@ -540,6 +527,7 @@ async fn hnsw_recall_stress_test() {
         collection: "recall_test".to_string(),
         kind: IndexKind::Hnsw,
         distance: DistanceMetric::L2,
+        dimension: DIMENSION,
         segments: vec![SegmentDescriptor {
             segment_id: Uuid::new_v4(),
             collection: "recall_test".to_string(),
@@ -553,19 +541,14 @@ async fn hnsw_recall_stress_test() {
     };
 
     let hnsw_handle = hnsw_provider.build(hnsw_request).await.unwrap();
-    hnsw_provider
-        .add_batch(&hnsw_handle, batch)
-        .await
-        .unwrap();
+    hnsw_provider.add_batch(&hnsw_handle, batch).await.unwrap();
 
     // Run recall tests with random queries
     let mut total_recall = 0.0;
 
     for query_idx in 0..NUM_QUERIES {
         // Generate random query vector
-        let query_components: Vec<f32> = (0..DIMENSION)
-            .map(|_| rng.gen_range(-1.0..1.0))
-            .collect();
+        let query_components: Vec<f32> = (0..DIMENSION).map(|_| rng.gen_range(-1.0..1.0)).collect();
 
         let query = QueryVector {
             components: query_components,
