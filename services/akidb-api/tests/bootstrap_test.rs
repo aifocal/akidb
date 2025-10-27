@@ -240,21 +240,318 @@ async fn test_backward_compatibility_no_metadata() {
         .expect("Bootstrap should handle segments without metadata");
 }
 
+//
+// ===== Fault Injection Helpers =====
+//
+
+/// Helper to create a valid collection with manifest and descriptor
+async fn create_valid_collection(
+    storage: &Arc<MemoryStorageBackend>,
+    name: &str,
+    vector_dim: u16,
+) -> akidb_core::Result<()> {
+    use akidb_core::manifest::CollectionManifest;
+    use akidb_storage::StorageBackend;
+
+    // 1. Create descriptor
+    let descriptor = CollectionDescriptor {
+        name: name.to_string(),
+        vector_dim,
+        distance: DistanceMetric::Cosine,
+        replication: 1,
+        shard_count: 1,
+        payload_schema: PayloadSchema::default(),
+        wal_stream_id: Some(uuid::Uuid::new_v4()),
+    };
+
+    let descriptor_key = format!("collections/{}/descriptor.json", name);
+    let descriptor_json = serde_json::to_vec(&descriptor)
+        .map_err(|e| akidb_core::Error::Validation(format!("Failed to serialize descriptor: {}", e)))?;
+    storage
+        .as_ref()
+        .put_object(&descriptor_key, descriptor_json.into())
+        .await?;
+
+    // 2. Create manifest
+    let manifest = CollectionManifest {
+        collection: name.to_string(),
+        latest_version: 0,
+        updated_at: Utc::now(),
+        dimension: vector_dim as u32,
+        metric: DistanceMetric::Cosine,
+        total_vectors: 0,
+        epoch: 0,
+        created_at: Some(Utc::now()),
+        snapshot: None,
+        segments: vec![],
+    };
+
+    let manifest_key = format!("collections/{}/manifest.json", name);
+    let manifest_json = serde_json::to_vec(&manifest)
+        .map_err(|e| akidb_core::Error::Validation(format!("Failed to serialize manifest: {}", e)))?;
+    storage
+        .as_ref()
+        .put_object(&manifest_key, manifest_json.into())
+        .await?;
+
+    Ok(())
+}
+
+/// Helper to corrupt a manifest file in storage
+async fn corrupt_manifest(
+    storage: &Arc<MemoryStorageBackend>,
+    collection_name: &str,
+) -> akidb_core::Result<()> {
+    use akidb_storage::StorageBackend;
+
+    let manifest_path = format!("collections/{}/manifest.json", collection_name);
+
+    // Write invalid JSON
+    let corrupted = b"{ invalid json content !!!";
+    storage
+        .as_ref()
+        .put_object(&manifest_path, corrupted.to_vec().into())
+        .await?;
+
+    Ok(())
+}
+
+/// Helper to delete a descriptor file (simulates missing descriptor)
+async fn delete_descriptor(
+    storage: &Arc<MemoryStorageBackend>,
+    collection_name: &str,
+) -> akidb_core::Result<()> {
+    use akidb_storage::StorageBackend;
+
+    let descriptor_path = format!("collections/{}/descriptor.json", collection_name);
+    storage.as_ref().delete_object(&descriptor_path).await?;
+    Ok(())
+}
+
+//
+// ===== Fault Tolerance Tests =====
+//
+
 #[tokio::test]
-async fn test_fault_tolerant_bootstrap() {
-    // Test that if one collection fails to load, others still succeed
+async fn test_fault_tolerant_bootstrap_corrupted_manifest() {
+    // Test that if one collection has a corrupted manifest, others still load
     let storage = Arc::new(MemoryStorageBackend::new());
 
-    // TODO: This test would require:
-    // 1. Creating multiple collections
-    // 2. Corrupting one collection's manifest
-    // 3. Verifying bootstrap continues with others
-    // 4. Checking that error is logged
+    // Create 3 valid collections
+    create_valid_collection(&storage, "collection_a", 128)
+        .await
+        .expect("Failed to create collection_a");
+    create_valid_collection(&storage, "collection_b", 128)
+        .await
+        .expect("Failed to create collection_b");
+    create_valid_collection(&storage, "collection_c", 128)
+        .await
+        .expect("Failed to create collection_c");
+
+    // Corrupt collection_b's manifest
+    corrupt_manifest(&storage, "collection_b")
+        .await
+        .expect("Failed to corrupt manifest");
+
+    // Bootstrap should succeed, loading collection_a and collection_c
+    let state = create_test_state(storage);
+    let result = bootstrap::bootstrap_collections(&state).await;
+
+    assert!(
+        result.is_ok(),
+        "Bootstrap should succeed despite corrupted manifest"
+    );
+
+    // Verify collection_a and collection_c are loaded
+    assert!(
+        state.get_collection("collection_a").await.is_ok(),
+        "collection_a should be loaded"
+    );
+    assert!(
+        state.get_collection("collection_c").await.is_ok(),
+        "collection_c should be loaded"
+    );
+
+    // Verify collection_b is NOT loaded (due to corrupted manifest)
+    assert!(
+        state.get_collection("collection_b").await.is_err(),
+        "collection_b should not be loaded (corrupted manifest)"
+    );
+}
+
+#[tokio::test]
+async fn test_fault_tolerant_bootstrap_missing_descriptor() {
+    // Test that if one collection is missing its descriptor, others still load
+    let storage = Arc::new(MemoryStorageBackend::new());
+
+    // Create 2 valid collections
+    create_valid_collection(&storage, "collection_x", 64)
+        .await
+        .expect("Failed to create collection_x");
+    create_valid_collection(&storage, "collection_y", 64)
+        .await
+        .expect("Failed to create collection_y");
+
+    // Delete collection_x's descriptor
+    delete_descriptor(&storage, "collection_x")
+        .await
+        .expect("Failed to delete descriptor");
+
+    // Bootstrap should succeed, loading only collection_y
+    let state = create_test_state(storage);
+    let result = bootstrap::bootstrap_collections(&state).await;
+
+    assert!(
+        result.is_ok(),
+        "Bootstrap should succeed despite missing descriptor"
+    );
+
+    // Verify collection_y is loaded
+    assert!(
+        state.get_collection("collection_y").await.is_ok(),
+        "collection_y should be loaded"
+    );
+
+    // Verify collection_x is NOT loaded (missing descriptor)
+    assert!(
+        state.get_collection("collection_x").await.is_err(),
+        "collection_x should not be loaded (missing descriptor)"
+    );
+}
+
+#[tokio::test]
+async fn test_fault_tolerant_bootstrap_all_collections_fail() {
+    // Test that if ALL collections fail to load, bootstrap still succeeds
+    // (returns Ok but no collections loaded)
+    let storage = Arc::new(MemoryStorageBackend::new());
+
+    // Create 2 collections with corrupted data
+    create_valid_collection(&storage, "broken_1", 128)
+        .await
+        .expect("Failed to create broken_1");
+    create_valid_collection(&storage, "broken_2", 128)
+        .await
+        .expect("Failed to create broken_2");
+
+    // Corrupt both manifests
+    corrupt_manifest(&storage, "broken_1")
+        .await
+        .expect("Failed to corrupt manifest");
+    corrupt_manifest(&storage, "broken_2")
+        .await
+        .expect("Failed to corrupt manifest");
+
+    // Bootstrap should still succeed (but load 0 collections)
+    let state = create_test_state(storage);
+    let result = bootstrap::bootstrap_collections(&state).await;
+
+    assert!(
+        result.is_ok(),
+        "Bootstrap should succeed even if all collections fail"
+    );
+
+    // Verify no collections are loaded
+    assert!(
+        state.get_collection("broken_1").await.is_err(),
+        "broken_1 should not be loaded"
+    );
+    assert!(
+        state.get_collection("broken_2").await.is_err(),
+        "broken_2 should not be loaded"
+    );
+}
+
+#[tokio::test]
+async fn test_fault_tolerant_bootstrap_mixed_failures() {
+    // Test complex scenario: multiple collections with different failure modes
+    let storage = Arc::new(MemoryStorageBackend::new());
+
+    // Create 4 collections
+    create_valid_collection(&storage, "good_collection", 128)
+        .await
+        .expect("Failed to create good_collection");
+    create_valid_collection(&storage, "corrupted_manifest", 128)
+        .await
+        .expect("Failed to create corrupted_manifest");
+    create_valid_collection(&storage, "missing_descriptor", 128)
+        .await
+        .expect("Failed to create missing_descriptor");
+    create_valid_collection(&storage, "another_good_one", 64)
+        .await
+        .expect("Failed to create another_good_one");
+
+    // Inject failures
+    corrupt_manifest(&storage, "corrupted_manifest")
+        .await
+        .expect("Failed to corrupt manifest");
+    delete_descriptor(&storage, "missing_descriptor")
+        .await
+        .expect("Failed to delete descriptor");
+
+    // Bootstrap should succeed
+    let state = create_test_state(storage);
+    let result = bootstrap::bootstrap_collections(&state).await;
+
+    assert!(
+        result.is_ok(),
+        "Bootstrap should succeed with mixed failures"
+    );
+
+    // Verify good collections are loaded
+    assert!(
+        state.get_collection("good_collection").await.is_ok(),
+        "good_collection should be loaded"
+    );
+    assert!(
+        state.get_collection("another_good_one").await.is_ok(),
+        "another_good_one should be loaded"
+    );
+
+    // Verify broken collections are NOT loaded
+    assert!(
+        state.get_collection("corrupted_manifest").await.is_err(),
+        "corrupted_manifest should not be loaded"
+    );
+    assert!(
+        state.get_collection("missing_descriptor").await.is_err(),
+        "missing_descriptor should not be loaded"
+    );
+}
+
+#[tokio::test]
+async fn test_fault_tolerant_bootstrap() {
+    // Original test - verify basic fault tolerance behavior
+    let storage = Arc::new(MemoryStorageBackend::new());
+
+    // Create 1 good collection and 1 bad collection
+    create_valid_collection(&storage, "good", 128)
+        .await
+        .expect("Failed to create good collection");
+    create_valid_collection(&storage, "bad", 128)
+        .await
+        .expect("Failed to create bad collection");
+
+    // Corrupt the bad collection
+    corrupt_manifest(&storage, "bad")
+        .await
+        .expect("Failed to corrupt manifest");
 
     let state = create_test_state(storage);
-    bootstrap::bootstrap_collections(&state)
-        .await
-        .expect("Bootstrap should be fault-tolerant");
+    let result = bootstrap::bootstrap_collections(&state).await;
+
+    assert!(result.is_ok(), "Bootstrap should be fault-tolerant");
+
+    // Good collection should be loaded
+    assert!(
+        state.get_collection("good").await.is_ok(),
+        "Good collection should be loaded"
+    );
+
+    // Bad collection should not be loaded
+    assert!(
+        state.get_collection("bad").await.is_err(),
+        "Bad collection should not be loaded"
+    );
 }
 
 #[tokio::test]

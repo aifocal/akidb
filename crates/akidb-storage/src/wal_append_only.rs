@@ -104,7 +104,7 @@ struct StreamState {
 /// - Sync operations only upload the active segment (O(1) instead of O(n))
 ///
 /// Storage layout:
-/// ```
+/// ```text
 /// wal/{stream_id}/
 ///   manifest.json          - Manifest tracking all segments
 ///   segments/
