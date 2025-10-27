@@ -394,3 +394,307 @@ async fn test_lsn_recovery_with_builder_pattern() {
 
     println!("✅ LSN recovery test passed: LSN counter correctly recovered from S3 (6 after restart, not 1)");
 }
+
+#[tokio::test]
+async fn test_wal_replay_delete_operations() {
+    //! Test that WAL replay correctly handles Delete operations
+    //!
+    //! Scenario:
+    //! 1. Insert 5 vectors (WAL entries 1-5)
+    //! 2. Delete 2 vectors (WAL entries 6-7)
+    //! 3. Crash (simulated)
+    //! 4. Bootstrap should replay all operations: 5 inserts, then 2 deletes
+    //! 5. Final state should have only 3 vectors
+
+    let state = create_test_state();
+    let wal_stream_id = WalStreamId::new();
+
+    // Create collection
+    let descriptor = Arc::new(CollectionDescriptor {
+        name: "test_delete_replay".to_string(),
+        vector_dim: 128,
+        distance: DistanceMetric::Cosine,
+        replication: 1,
+        shard_count: 1,
+        payload_schema: Default::default(),
+        wal_stream_id: Some(wal_stream_id.0),
+    });
+
+    state.storage.create_collection(&descriptor).await.unwrap();
+
+    let now = chrono::Utc::now();
+    let manifest = CollectionManifest {
+        collection: "test_delete_replay".to_string(),
+        latest_version: 0,
+        updated_at: now,
+        dimension: 128,
+        metric: DistanceMetric::Cosine,
+        total_vectors: 0,
+        epoch: 0,
+        created_at: Some(now),
+        snapshot: None,
+        segments: Vec::new(),
+    };
+
+    state.storage.persist_manifest(&manifest).await.unwrap();
+
+    // Persist descriptor
+    let desc_key = format!("collections/{}/descriptor.json", "test_delete_replay");
+    let desc_data = serde_json::to_vec(descriptor.as_ref()).unwrap();
+    state
+        .storage
+        .put_object(&desc_key, desc_data.into())
+        .await
+        .unwrap();
+
+    let wal = state.wal.clone();
+
+    // Phase 1: Insert 5 vectors
+    for i in 0..5 {
+        let record = WalRecord::Insert {
+            collection: "test_delete_replay".to_string(),
+            primary_key: format!("key_{}", i),
+            vector: vec![i as f32; 128],
+            payload: json!({"id": i, "category": "test"}),
+        };
+        wal.append(wal_stream_id, record).await.unwrap();
+    }
+
+    // Phase 2: Delete 2 vectors (key_1 and key_3)
+    for key_id in [1, 3] {
+        let record = WalRecord::Delete {
+            collection: "test_delete_replay".to_string(),
+            primary_key: format!("key_{}", key_id),
+        };
+        wal.append(wal_stream_id, record).await.unwrap();
+    }
+
+    // Sync WAL to S3
+    wal.sync(wal_stream_id).await.unwrap();
+
+    // Verify WAL has 7 entries (5 inserts + 2 deletes)
+    let replay_stats = wal.replay(wal_stream_id, None).await.unwrap();
+    assert_eq!(replay_stats.records, 7, "Should have 7 WAL records before crash");
+
+    // Phase 3: Simulate crash - create new state
+    let storage2 = state.storage.clone();
+    let wal2 = state.wal.clone();
+    let index_provider2 = Arc::new(NativeIndexProvider::new());
+    let planner2: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine2: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider2.clone()));
+    let metadata_store2: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine2 = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine2),
+        Arc::clone(&metadata_store2),
+    ));
+    let query_cache2 = Arc::new(akidb_api::query_cache::QueryCache::default());
+
+    let state2 = AppState::new(
+        storage2,
+        index_provider2,
+        planner2,
+        engine2,
+        batch_engine2,
+        metadata_store2,
+        wal2,
+        query_cache2,
+    );
+
+    // Phase 4: Bootstrap (should replay 5 inserts, then 2 deletes)
+    akidb_api::bootstrap::bootstrap_collections(&state2)
+        .await
+        .unwrap();
+
+    // Phase 5: Verify final state has 3 vectors (key_0, key_2, key_4)
+    let collection = state2.get_collection("test_delete_replay").await.unwrap();
+
+    // Check next_doc_id reflects inserts (5 vectors were inserted, even though 2 were deleted)
+    // doc_id counter should be 5 (not decremented by deletes)
+    let next_doc_id = collection
+        .next_doc_id
+        .load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        next_doc_id, 5,
+        "next_doc_id should be 5 (delete doesn't decrement counter)"
+    );
+
+    // Verify the deleted vectors are actually gone from metadata store
+    // Keys key_1 and key_3 should not exist in metadata
+    let all_docs = state2.metadata_store.get_all_docs("test_delete_replay").await.unwrap();
+
+    // Should have 3 documents (0, 2, 4) since doc_ids match insertion order
+    assert_eq!(
+        all_docs.len(),
+        3,
+        "Should have 3 documents after deleting 2 out of 5"
+    );
+
+    // Verify specific doc_ids exist: 0, 2, 4 (corresponding to key_0, key_2, key_4)
+    assert!(all_docs.contains(0), "doc_id 0 (key_0) should exist");
+    assert!(!all_docs.contains(1), "doc_id 1 (key_1) should be deleted");
+    assert!(all_docs.contains(2), "doc_id 2 (key_2) should exist");
+    assert!(!all_docs.contains(3), "doc_id 3 (key_3) should be deleted");
+    assert!(all_docs.contains(4), "doc_id 4 (key_4) should exist");
+
+    println!("✅ WAL replay Delete test passed: 2 deletes correctly applied, 3 vectors remain");
+}
+
+#[tokio::test]
+async fn test_wal_replay_upsert_operations() {
+    //! Test that WAL replay correctly handles UpsertPayload operations
+    //!
+    //! Scenario:
+    //! 1. Insert 3 vectors with payload {"version": 1}
+    //! 2. Upsert 2 vectors with payload {"version": 2}
+    //! 3. Crash (simulated)
+    //! 4. Bootstrap should replay all operations
+    //! 5. Final state should have 3 vectors, with 2 having version=2
+
+    let state = create_test_state();
+    let wal_stream_id = WalStreamId::new();
+
+    // Create collection
+    let descriptor = Arc::new(CollectionDescriptor {
+        name: "test_upsert_replay".to_string(),
+        vector_dim: 128,
+        distance: DistanceMetric::L2,
+        replication: 1,
+        shard_count: 1,
+        payload_schema: Default::default(),
+        wal_stream_id: Some(wal_stream_id.0),
+    });
+
+    state.storage.create_collection(&descriptor).await.unwrap();
+
+    let now = chrono::Utc::now();
+    let manifest = CollectionManifest {
+        collection: "test_upsert_replay".to_string(),
+        latest_version: 0,
+        updated_at: now,
+        dimension: 128,
+        metric: DistanceMetric::L2,
+        total_vectors: 0,
+        epoch: 0,
+        created_at: Some(now),
+        snapshot: None,
+        segments: Vec::new(),
+    };
+
+    state.storage.persist_manifest(&manifest).await.unwrap();
+
+    // Persist descriptor
+    let desc_key = format!("collections/{}/descriptor.json", "test_upsert_replay");
+    let desc_data = serde_json::to_vec(descriptor.as_ref()).unwrap();
+    state
+        .storage
+        .put_object(&desc_key, desc_data.into())
+        .await
+        .unwrap();
+
+    let wal = state.wal.clone();
+
+    // Phase 1: Insert 3 vectors with version=1
+    for i in 0..3 {
+        let record = WalRecord::Insert {
+            collection: "test_upsert_replay".to_string(),
+            primary_key: format!("key_{}", i),
+            vector: vec![i as f32; 128],
+            payload: json!({"id": i, "version": 1, "data": format!("original_{}", i)}),
+        };
+        wal.append(wal_stream_id, record).await.unwrap();
+    }
+
+    // Phase 2: Upsert payload for key_0 and key_2 (change version to 2)
+    for key_id in [0, 2] {
+        let record = WalRecord::UpsertPayload {
+            collection: "test_upsert_replay".to_string(),
+            primary_key: format!("key_{}", key_id),
+            payload: json!({"id": key_id, "version": 2, "data": format!("updated_{}", key_id)}),
+        };
+        wal.append(wal_stream_id, record).await.unwrap();
+    }
+
+    // Sync WAL to S3
+    wal.sync(wal_stream_id).await.unwrap();
+
+    // Verify WAL has 5 entries (3 inserts + 2 upserts)
+    let replay_stats = wal.replay(wal_stream_id, None).await.unwrap();
+    assert_eq!(replay_stats.records, 5, "Should have 5 WAL records before crash");
+
+    // Phase 3: Simulate crash - create new state
+    let storage2 = state.storage.clone();
+    let wal2 = state.wal.clone();
+    let index_provider2 = Arc::new(NativeIndexProvider::new());
+    let planner2: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
+    let engine2: Arc<dyn ExecutionEngine> =
+        Arc::new(SimpleExecutionEngine::new(index_provider2.clone()));
+    let metadata_store2: Arc<dyn MetadataStore> = Arc::new(MemoryMetadataStore::new());
+    let batch_engine2 = Arc::new(BatchExecutionEngine::new(
+        Arc::clone(&engine2),
+        Arc::clone(&metadata_store2),
+    ));
+    let query_cache2 = Arc::new(akidb_api::query_cache::QueryCache::default());
+
+    let state2 = AppState::new(
+        storage2,
+        index_provider2,
+        planner2,
+        engine2,
+        batch_engine2,
+        metadata_store2,
+        wal2,
+        query_cache2,
+    );
+
+    // Phase 4: Bootstrap (should replay 3 inserts, then 2 upserts)
+    akidb_api::bootstrap::bootstrap_collections(&state2)
+        .await
+        .unwrap();
+
+    // Phase 5: Verify final state
+    let collection = state2.get_collection("test_upsert_replay").await.unwrap();
+
+    // Should have 3 vectors
+    let next_doc_id = collection
+        .next_doc_id
+        .load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(next_doc_id, 3, "Should have 3 vectors");
+
+    // Verify all 3 documents exist in metadata store
+    let all_docs = state2.metadata_store.get_all_docs("test_upsert_replay").await.unwrap();
+    assert_eq!(all_docs.len(), 3, "Should have 3 documents");
+
+    // Verify doc_ids 0, 1, 2 exist
+    assert!(all_docs.contains(0), "doc_id 0 (key_0) should exist");
+    assert!(all_docs.contains(1), "doc_id 1 (key_1) should exist");
+    assert!(all_docs.contains(2), "doc_id 2 (key_2) should exist");
+
+    // Verify version field was updated for doc_id 0 and 2
+    // We can check this by querying metadata store with version=2
+    let version2_docs = state2
+        .metadata_store
+        .find_term("test_upsert_replay", "version", &json!(2))
+        .await
+        .unwrap();
+
+    // Should have 2 documents with version=2 (key_0 and key_2)
+    assert_eq!(
+        version2_docs.len(),
+        2,
+        "Should have 2 documents with version=2 after upsert"
+    );
+    assert!(version2_docs.contains(0), "doc_id 0 should have version=2");
+    assert!(version2_docs.contains(2), "doc_id 2 should have version=2");
+
+    // Verify key_1 still has version=1
+    let version1_docs = state2
+        .metadata_store
+        .find_term("test_upsert_replay", "version", &json!(1))
+        .await
+        .unwrap();
+    assert_eq!(version1_docs.len(), 1, "Should have 1 document with version=1");
+    assert!(version1_docs.contains(1), "doc_id 1 should have version=1");
+
+    println!("✅ WAL replay Upsert test passed: 2 payloads correctly updated, 1 unchanged");
+}

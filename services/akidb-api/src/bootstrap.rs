@@ -238,6 +238,9 @@ async fn load_collection(
         let mut last_lsn: Option<akidb_storage::LogSequence> = None;
         let mut total_replayed = 0;
 
+        // Maintain primary_key → doc_id mapping for Delete/Upsert operations
+        let mut key_to_doc_id: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+
         loop {
             // Fetch next batch starting from last processed LSN
             let wal_entries_bytes = wal
@@ -291,23 +294,119 @@ async fn load_collection(
                         batch_payloads.push(payload);
                     }
                     akidb_storage::WalRecord::Delete { primary_key, .. } => {
-                        // TODO: Handle deletes (Phase 3 M3)
-                        warn!("Skipping WAL delete record for key: {}", primary_key);
+                        // IMPORTANT: Flush pending inserts before processing delete to maintain
+                        // correct ordering. If we buffer deletes and inserts together, a sequence
+                        // like [Insert(A), Delete(A), Insert(A)] could replay incorrectly.
+                        if !batch_vectors.is_empty() {
+                            let batch_count = batch_vectors.len();
+                            let doc_id_start = global_vector_index as u32;
+
+                            let batch = IndexBatch {
+                                primary_keys: batch_keys.clone(),
+                                vectors: batch_vectors.clone(),
+                                payloads: batch_payloads.clone(),
+                            };
+
+                            // Add to index
+                            index_provider.add_batch(&index_handle, batch).await?;
+
+                            // Index metadata and track key → doc_id mapping
+                            for (idx, (key, payload)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                                let doc_id = doc_id_start + idx as u32;
+                                metadata_store.index_metadata(name, doc_id, payload).await?;
+                                key_to_doc_id.insert(key.clone(), doc_id);
+                            }
+
+                            global_vector_index += batch_count;
+                            total_replayed += batch_count;
+
+                            // Clear batch buffers
+                            batch_keys.clear();
+                            batch_vectors.clear();
+                            batch_payloads.clear();
+
+                            debug!("Flushed {} vectors before Delete operation", batch_count);
+                        }
+
+                        // Process delete operation
+                        if let Some(&doc_id) = key_to_doc_id.get(&primary_key) {
+                            // Remove from index
+                            index_provider.remove(&index_handle, &[primary_key.clone()]).await?;
+
+                            // Remove from metadata store
+                            metadata_store.remove_metadata(name, doc_id).await?;
+
+                            // Remove from mapping
+                            key_to_doc_id.remove(&primary_key);
+
+                            debug!("WAL replay: Deleted vector with key '{}' (doc_id: {})", primary_key, doc_id);
+                        } else {
+                            warn!(
+                                "WAL replay: Cannot delete key '{}' - not found in collection '{}'",
+                                primary_key, name
+                            );
+                        }
                     }
-                    akidb_storage::WalRecord::UpsertPayload { primary_key, .. } => {
-                        // TODO: Handle upserts (Phase 3 M3)
-                        warn!("Skipping WAL upsert record for key: {}", primary_key);
+                    akidb_storage::WalRecord::UpsertPayload { primary_key, payload, .. } => {
+                        // IMPORTANT: Flush pending inserts before upsert (same reasoning as Delete)
+                        if !batch_vectors.is_empty() {
+                            let batch_count = batch_vectors.len();
+                            let doc_id_start = global_vector_index as u32;
+
+                            let batch = IndexBatch {
+                                primary_keys: batch_keys.clone(),
+                                vectors: batch_vectors.clone(),
+                                payloads: batch_payloads.clone(),
+                            };
+
+                            // Add to index
+                            index_provider.add_batch(&index_handle, batch).await?;
+
+                            // Index metadata and track key → doc_id mapping
+                            for (idx, (key, pl)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                                let doc_id = doc_id_start + idx as u32;
+                                metadata_store.index_metadata(name, doc_id, pl).await?;
+                                key_to_doc_id.insert(key.clone(), doc_id);
+                            }
+
+                            global_vector_index += batch_count;
+                            total_replayed += batch_count;
+
+                            // Clear batch buffers
+                            batch_keys.clear();
+                            batch_vectors.clear();
+                            batch_payloads.clear();
+
+                            debug!("Flushed {} vectors before UpsertPayload operation", batch_count);
+                        }
+
+                        // Process upsert operation (update metadata only, vector stays same)
+                        if let Some(&doc_id) = key_to_doc_id.get(&primary_key) {
+                            // Update metadata store with new payload
+                            metadata_store.insert_metadata(name, doc_id, &payload).await?;
+
+                            debug!(
+                                "WAL replay: Updated payload for key '{}' (doc_id: {})",
+                                primary_key, doc_id
+                            );
+                        } else {
+                            warn!(
+                                "WAL replay: Cannot upsert key '{}' - not found in collection '{}'. \
+                                 This may indicate the vector was deleted or never inserted.",
+                                primary_key, name
+                            );
+                        }
                     }
                 }
             }
 
-            // Add batch to index and metadata store if we have vectors
+            // Add batch to index and metadata store if we have remaining vectors
             if !batch_vectors.is_empty() {
                 let batch_count = batch_vectors.len();
                 let doc_id_start = global_vector_index as u32;
 
                 let batch = IndexBatch {
-                    primary_keys: batch_keys,
+                    primary_keys: batch_keys.clone(),
                     vectors: batch_vectors,
                     payloads: batch_payloads.clone(),
                 };
@@ -315,11 +414,11 @@ async fn load_collection(
                 // Add to index
                 index_provider.add_batch(&index_handle, batch).await?;
 
-                // Index metadata for each vector
-                for (idx, payload) in batch_payloads.iter().enumerate() {
-                    metadata_store
-                        .index_metadata(name, doc_id_start + idx as u32, payload)
-                        .await?;
+                // Index metadata and track key → doc_id mapping
+                for (idx, (key, payload)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                    let doc_id = doc_id_start + idx as u32;
+                    metadata_store.index_metadata(name, doc_id, payload).await?;
+                    key_to_doc_id.insert(key.clone(), doc_id);
                 }
 
                 global_vector_index += batch_count;
