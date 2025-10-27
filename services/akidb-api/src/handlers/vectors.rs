@@ -13,6 +13,11 @@ use std::sync::atomic::Ordering;
 use tracing::{debug, info};
 use uuid::Uuid;
 
+/// Maximum number of vectors allowed in a single insert request.
+/// This prevents DoS attacks via oversized payloads.
+/// Limit: 10,000 vectors × ~2KB each = ~20MB payload (reasonable for single request)
+const MAX_INSERT_BATCH_SIZE: usize = 10_000;
+
 /// Request to insert vectors
 #[derive(Debug, Deserialize)]
 pub struct InsertVectorsRequest {
@@ -52,6 +57,15 @@ pub async fn insert_vectors(
         return Err(ApiError::Validation(
             "Cannot insert empty vector list".to_string(),
         ));
+    }
+
+    // Prevent DoS via oversized batch
+    if req.vectors.len() > MAX_INSERT_BATCH_SIZE {
+        return Err(ApiError::Validation(format!(
+            "Batch size {} exceeds maximum allowed {} vectors per request. Please split into smaller batches.",
+            req.vectors.len(),
+            MAX_INSERT_BATCH_SIZE
+        )));
     }
 
     // Get collection metadata
