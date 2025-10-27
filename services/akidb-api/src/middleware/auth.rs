@@ -101,8 +101,14 @@ pub async fn auth_middleware(config: Arc<AuthConfig>, request: Request, next: Ne
         return next.run(request).await;
     }
 
-    // Skip auth for health check endpoint
-    if request.uri().path() == "/health" {
+    // Skip auth for health check and metrics endpoints (for Kubernetes probes & Prometheus)
+    let path = request.uri().path();
+    if path == "/health"
+        || path == "/health/live"
+        || path == "/health/ready"
+        || path == "/metrics"
+    {
+        debug!("Skipping auth for public endpoint: {}", path);
         return next.run(request).await;
     }
 
@@ -275,5 +281,86 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_health_live_bypasses_auth() {
+        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let app = Router::new()
+            .route("/health/live", get(test_handler))
+            .layer(middleware::from_fn(move |req, next| {
+                let config = config.clone();
+                auth_middleware(config, req, next)
+            }));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health/live")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Liveness probe should bypass auth for Kubernetes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_health_ready_bypasses_auth() {
+        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let app = Router::new()
+            .route("/health/ready", get(test_handler))
+            .layer(middleware::from_fn(move |req, next| {
+                let config = config.clone();
+                auth_middleware(config, req, next)
+            }));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Readiness probe should bypass auth for Kubernetes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metrics_bypasses_auth() {
+        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let app = Router::new()
+            .route("/metrics", get(test_handler))
+            .layer(middleware::from_fn(move |req, next| {
+                let config = config.clone();
+                auth_middleware(config, req, next)
+            }));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Metrics endpoint should bypass auth for Prometheus"
+        );
     }
 }

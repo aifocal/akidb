@@ -64,7 +64,6 @@ struct SerializableVectorStore {
 
 /// Type alias for HNSW index based on distance metric
 /// Note: hnsw_rs Hnsw requires a lifetime parameter, so we use it directly where needed
-
 /// In-memory vector store for HNSW index
 struct VectorStore {
     /// Collection name

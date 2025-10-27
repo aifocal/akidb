@@ -397,6 +397,10 @@ mod neon {
     }
 
     /// Cosine distance using NEON
+    ///
+    /// # Safety
+    /// - Caller must ensure NEON is available on the target CPU
+    /// - Slices a and b must have equal length and be properly aligned for NEON operations
     #[inline]
     #[target_feature(enable = "neon")]
     pub unsafe fn compute_cosine_neon(a: &[f32], b: &[f32]) -> f32 {
@@ -441,6 +445,10 @@ mod neon {
     }
 
     /// Dot product using NEON
+    ///
+    /// # Safety
+    /// - Caller must ensure NEON is available on the target CPU
+    /// - Slices a and b must have equal length and be properly aligned for NEON operations
     #[inline]
     #[target_feature(enable = "neon")]
     pub unsafe fn compute_dot_neon(a: &[f32], b: &[f32]) -> f32 {

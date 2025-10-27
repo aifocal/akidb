@@ -297,7 +297,7 @@ async fn test_multi_batch_doc_id_uniqueness() {
     create_test_collection(&state, collection_name, 2).await;
 
     // Insert 3 batches of different sizes
-    let batch_sizes = vec![10, 15, 7];
+    let batch_sizes = [10, 15, 7];
     let mut all_doc_ids = Vec::new();
 
     for (batch_idx, size) in batch_sizes.iter().enumerate() {
@@ -326,7 +326,7 @@ async fn test_multi_batch_doc_id_uniqueness() {
         // Collect doc_ids from metadata (assuming doc_id == index in insertion order)
         // This is a simplified check - in real implementation, we'd query metadata
         let start_doc_id = all_doc_ids.len() as u32;
-        all_doc_ids.extend(start_doc_id..(start_doc_id + *size as u32));
+        all_doc_ids.extend(start_doc_id..(start_doc_id + *size));
     }
 
     // Verify uniqueness

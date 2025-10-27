@@ -56,7 +56,7 @@ fn create_test_state() -> AppState {
 }
 
 #[tokio::test]
-async fn test_health_check() {
+async fn test_health_check_detailed() {
     init_tracing();
     let state = create_test_state();
     let app = build_router_with_auth(state, AuthConfig::disabled());
@@ -72,6 +72,92 @@ async fn test_health_check() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify JSON response
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Verify response structure
+    assert!(health.get("status").is_some(), "Should have status field");
+    assert!(health.get("version").is_some(), "Should have version field");
+    assert!(
+        health.get("uptime_seconds").is_some(),
+        "Should have uptime field"
+    );
+    assert!(
+        health.get("components").is_some(),
+        "Should have components field"
+    );
+
+    // Verify components
+    let components = health.get("components").unwrap();
+    assert!(
+        components.get("storage").is_some(),
+        "Should have storage component"
+    );
+    assert!(
+        components.get("wal").is_some(),
+        "Should have wal component"
+    );
+    assert!(
+        components.get("index").is_some(),
+        "Should have index component"
+    );
+
+    println!("✅ Detailed health check test passed");
+    println!("   Response: {}", serde_json::to_string_pretty(&health).unwrap());
+}
+
+#[tokio::test]
+async fn test_health_liveness() {
+    init_tracing();
+    let state = create_test_state();
+    let app = build_router_with_auth(state, AuthConfig::disabled());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health/live")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Liveness probe should always return 200 OK"
+    );
+
+    println!("✅ Liveness probe test passed");
+}
+
+#[tokio::test]
+async fn test_health_readiness() {
+    init_tracing();
+    let state = create_test_state();
+    let app = build_router_with_auth(state, AuthConfig::disabled());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Readiness probe should return 200 when storage is healthy"
+    );
+
+    println!("✅ Readiness probe test passed");
 }
 
 #[tokio::test]
@@ -853,4 +939,90 @@ async fn test_multi_batch_ingestion_with_filters() {
     println!("   - Second insert did not return HTTP 500 (P0-2 fixed)");
     println!("   - Filters work correctly across all batches (P0-1 fixed)");
     println!("   - No metadata overwrites detected");
+}
+
+#[tokio::test]
+async fn test_metrics_endpoint() {
+    init_tracing();
+    let state = create_test_state();
+    let app = build_router_with_auth(state.clone(), AuthConfig::disabled());
+
+    // 1. Make some API requests to generate metrics
+    // Create a collection
+    let create_req = json!({
+        "name": "metrics_test",
+        "vector_dim": 3,
+        "distance": "Cosine"
+    });
+
+    let _response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/collections")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // 2. Fetch /metrics endpoint
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 3. Verify content type is Prometheus text format
+    let content_type = response.headers().get("content-type").unwrap();
+    assert!(
+        content_type
+            .to_str()
+            .unwrap()
+            .contains("text/plain; version=0.0.4"),
+        "Metrics endpoint should return Prometheus text format"
+    );
+
+    // 4. Verify metrics content
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+
+    // Verify some expected metrics are present
+    assert!(
+        text.contains("akidb_api_requests_total"),
+        "Metrics should include API request counter"
+    );
+    assert!(
+        text.contains("akidb_api_request_duration_seconds"),
+        "Metrics should include API request duration"
+    );
+    assert!(
+        text.contains("akidb_active_connections"),
+        "Metrics should include active connections gauge"
+    );
+    assert!(
+        text.contains("# HELP"),
+        "Metrics should include help text"
+    );
+    assert!(
+        text.contains("# TYPE"),
+        "Metrics should include type information"
+    );
+
+    println!("✅ Metrics endpoint test passed:");
+    println!("   - /metrics endpoint is accessible");
+    println!("   - Returns Prometheus text format");
+    println!("   - Contains expected metrics (API requests, duration, connections)");
+    println!("   - Includes HELP and TYPE annotations");
 }

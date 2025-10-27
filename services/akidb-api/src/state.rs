@@ -54,6 +54,7 @@ pub struct CollectionMetadata {
 
 impl AppState {
     /// Create a new application state
+    #[allow(clippy::too_many_arguments)] // Constructor with required dependencies
     pub fn new(
         storage: Arc<dyn StorageBackend>,
         index_provider: Arc<dyn IndexProvider>,

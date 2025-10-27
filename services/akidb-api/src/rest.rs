@@ -1,7 +1,8 @@
 use crate::{
     handlers::{
-        batch_search_vectors, create_collection, delete_collection, get_collection, insert_vectors,
-        list_collections, metrics_handler, search_vectors,
+        batch_search_vectors, create_collection, delete_collection, detailed_health_handler,
+        get_collection, insert_vectors, list_collections, liveness_handler, metrics_handler,
+        readiness_handler, search_vectors,
     },
     middleware::{auth_middleware, track_metrics, AuthConfig},
     state::AppState,
@@ -24,7 +25,9 @@ pub fn build_router_with_auth(state: AppState, auth_config: AuthConfig) -> Route
 
     Router::new()
         // Health check and metrics (no auth required)
-        .route("/health", get(health_check))
+        .route("/health", get(detailed_health_handler))
+        .route("/health/live", get(liveness_handler))
+        .route("/health/ready", get(readiness_handler))
         .route("/metrics", get(metrics_handler))
         // Collection management
         .route("/collections", get(list_collections).post(create_collection))
@@ -39,14 +42,14 @@ pub fn build_router_with_auth(state: AppState, auth_config: AuthConfig) -> Route
         .route("/collections/:name/batch-search", post(batch_search_vectors))
         // Add state
         .with_state(state)
-        // Add metrics middleware (tracks ALL requests, applied before auth)
-        .layer(middleware::from_fn(track_metrics))
-        // Add authentication middleware
+        // Add authentication middleware (inner - executes after metrics)
         .layer(middleware::from_fn(move |req, next| {
             let config = auth_config.clone();
             auth_middleware(config, req, next)
         }))
-        // Add logging layer
+        // Add metrics middleware (outer - executes before auth, tracks ALL requests)
+        .layer(middleware::from_fn(track_metrics))
+        // Add logging layer (outermost)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &Request| {
@@ -84,8 +87,4 @@ pub fn build_router_with_auth(state: AppState, auth_config: AuthConfig) -> Route
 /// Uses auth config from environment variables.
 pub fn build_router(state: AppState) -> Router {
     build_router_with_auth(state, AuthConfig::from_env())
-}
-
-async fn health_check() -> &'static str {
-    "ok"
 }

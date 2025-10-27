@@ -2,11 +2,7 @@
 //!
 //! Provides /metrics endpoint for Prometheus scraping.
 
-use axum::{
-    body::Body,
-    http::{Response, StatusCode},
-    response::IntoResponse,
-};
+use axum::{http::StatusCode, response::IntoResponse};
 use prometheus::{Encoder, TextEncoder};
 
 /// Handler for /metrics endpoint
@@ -20,15 +16,17 @@ pub async fn metrics_handler() -> impl IntoResponse {
     let mut buffer = Vec::new();
 
     match encoder.encode(&metric_families, &mut buffer) {
-        Ok(_) => Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-            .body(Body::from(buffer))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(format!("Failed to encode metrics: {}", e)))
-            .unwrap(),
+        Ok(_) => (
+            StatusCode::OK,
+            [("Content-Type", "text/plain; version=0.0.4; charset=utf-8")],
+            buffer,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to encode metrics: {}", e),
+        )
+            .into_response(),
     }
 }
 

@@ -176,7 +176,18 @@ pub async fn insert_vectors(
         handle
     };
 
-    // Add vectors to index
+    // Bump collection epoch BEFORE adding vectors to index to prevent cache poisoning
+    // Race condition: If we bump AFTER add_batch(), concurrent searches could:
+    // 1. Read old epoch N
+    // 2. Find newly added vectors (from add_batch)
+    // 3. Cache results with old epoch N
+    // Result: Cache contains new data with old epoch key (cache poisoning)
+    state
+        .bump_collection_epoch(&collection_name)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    // Add vectors to index (vectors become searchable)
     let batch = IndexBatch {
         primary_keys: req.vectors.iter().map(|v| v.id.clone()).collect(),
         vectors: req
@@ -197,6 +208,7 @@ pub async fn insert_vectors(
 
     // Index metadata for filter queries using globally reserved doc_id range
     for (idx, vec_input) in req.vectors.iter().enumerate() {
+        // Safety: idx < req.vectors.len() which was validated as <= u32::MAX at line 86
         let offset = u32::try_from(idx).expect("idx within u32 range due to validation at line 86");
         let doc_id = start_doc_id + offset;
         if let Err(e) = state
@@ -270,12 +282,7 @@ pub async fn insert_vectors(
         );
     }
 
-    // Bump collection epoch to invalidate cached queries
-    state
-        .bump_collection_epoch(&collection_name)
-        .await
-        .map_err(ApiError::Internal)?;
-
+    // Note: Epoch was already bumped before add_batch() to prevent cache poisoning
     info!(
         "Successfully inserted {} vectors into collection '{}', segment {}",
         batch_len, collection_name, segment_id

@@ -76,7 +76,7 @@ async fn insert_vectors_via_api(
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/collections/{}/vectors", collection_name))
+                .uri(format!("/collections/{}/vectors", collection_name))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&vectors).unwrap()))
                 .unwrap(),
@@ -321,9 +321,9 @@ async fn test_batch_search_basic_functionality() {
     let results = batch_response["results"].as_array().unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0]["id"], "q1");
-    assert!(results[0]["neighbors"].as_array().unwrap().len() > 0);
+    assert!(!results[0]["neighbors"].as_array().unwrap().is_empty());
     assert_eq!(results[1]["id"], "q2");
-    assert!(results[1]["neighbors"].as_array().unwrap().len() > 0);
+    assert!(!results[1]["neighbors"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

@@ -37,7 +37,7 @@ fn query_cache_benchmark(c: &mut Criterion) {
 
     // Build HNSW index
     let (provider, handle) = collection
-        .build_hnsw_index(&rt, DistanceMetric::Cosine, None)
+        .build_hnsw_index(rt, DistanceMetric::Cosine, None)
         .expect("failed to build HNSW index");
 
     // Prepare query vectors
@@ -108,7 +108,7 @@ fn batch_query_benchmark(c: &mut Criterion) {
         create_collection_from_arc(Some("batch-query-bench".to_string()), vectors, payloads);
 
     let (provider, handle) = collection
-        .build_hnsw_index(&rt, DistanceMetric::Cosine, None)
+        .build_hnsw_index(rt, DistanceMetric::Cosine, None)
         .expect("failed to build HNSW index");
 
     let batch_sizes = [10, 25, 50];
@@ -229,7 +229,7 @@ fn filter_precompilation_benchmark(c: &mut Criterion) {
         create_collection_from_arc(Some("filter-cache-bench".to_string()), vectors, payloads);
 
     let (provider, handle) = collection
-        .build_hnsw_index(&rt, DistanceMetric::Cosine, None)
+        .build_hnsw_index(rt, DistanceMetric::Cosine, None)
         .expect("failed to build HNSW index");
 
     // Build filter bitmap
@@ -297,7 +297,7 @@ fn combined_optimizations_benchmark(c: &mut Criterion) {
         create_collection_from_arc(Some("combined-bench".to_string()), vectors, payloads);
 
     let (provider, handle) = collection
-        .build_hnsw_index(&rt, DistanceMetric::Cosine, None)
+        .build_hnsw_index(rt, DistanceMetric::Cosine, None)
         .expect("failed to build HNSW index");
 
     let filter_bitmap = collection.build_filter_bitmap("tag", &["alpha"]);
