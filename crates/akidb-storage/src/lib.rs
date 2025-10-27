@@ -7,6 +7,7 @@ pub mod s3;
 pub mod segment_format;
 pub mod snapshot;
 pub mod wal;
+pub mod wal_append_only;
 
 pub use backend::{StorageBackend, StorageStatus};
 pub use error::Result;
@@ -22,3 +23,4 @@ pub use wal::{
     LogSequence, RecoveryStats, ReplayStats, S3WalBackend, WalAppender, WalEntry, WalRecord,
     WalRecovery, WalReplayer, WalStreamId,
 };
+pub use wal_append_only::{AppendOnlyWalBackend, SegmentMetadata, WalManifest};
