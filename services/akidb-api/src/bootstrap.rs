@@ -160,6 +160,8 @@ async fn load_collection(
                     .map(|(i, payload)| extract_primary_key(payload, global_vector_index + i))
                     .collect();
 
+                // Save doc_id start for metadata indexing (before incrementing global_vector_index)
+                let doc_id_start = global_vector_index as u32;
                 global_vector_index += vector_count;
 
                 // Convert vectors to QueryVector format
@@ -172,14 +174,25 @@ async fn load_collection(
                 let batch = IndexBatch {
                     primary_keys,
                     vectors: query_vectors,
-                    payloads,
+                    payloads: payloads.clone(),
                 };
 
                 index_provider.add_batch(&index_handle, batch).await?;
+
+                // Rehydrate metadata store for filter queries
+                // IMPORTANT: Without this, filters are blind to persisted segments after restart.
+                // The in-memory metadata store only contains WAL-replayed data by default.
+                for (idx, payload) in payloads.iter().enumerate() {
+                    let doc_id = doc_id_start + idx as u32;
+                    metadata_store
+                        .index_metadata(name, doc_id, payload)
+                        .await?;
+                }
+
                 total_vectors_loaded += vector_count;
 
                 debug!(
-                    "Loaded {} vectors from segment {}",
+                    "Loaded {} vectors from segment {} (metadata indexed for filter queries)",
                     vector_count, segment_desc.segment_id
                 );
             }

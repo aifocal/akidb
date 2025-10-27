@@ -153,8 +153,21 @@ pub async fn insert_vectors(
             })?;
     }
 
+    // Sync WAL to storage to ensure durability before proceeding
+    // CRITICAL: Without sync(), records stay in memory and are lost on crash
+    state
+        .wal
+        .sync(metadata.wal_stream_id)
+        .await
+        .map_err(|e| {
+            ApiError::Internal(akidb_core::Error::Storage(format!(
+                "WAL sync failed: {}",
+                e
+            )))
+        })?;
+
     debug!(
-        "WAL write complete for {} vectors in collection '{}'",
+        "WAL write complete and synced for {} vectors in collection '{}'",
         batch_len, collection_name
     );
 
@@ -221,59 +234,49 @@ pub async fn insert_vectors(
         .map_err(ApiError::Internal)?;
 
     // Index metadata for filter queries using globally reserved doc_id range
+    // IMPORTANT: Metadata indexing failures must propagate as errors to ensure data consistency.
+    // If metadata indexing fails, vectors would be searchable via ANN but invisible to filters,
+    // creating a permanent data inconsistency that WAL replay cannot fix.
     for (idx, vec_input) in req.vectors.iter().enumerate() {
         // Safety: idx < req.vectors.len() which was validated as <= u32::MAX at line 86
         let offset = u32::try_from(idx).expect("idx within u32 range due to validation at line 86");
         let doc_id = start_doc_id + offset;
-        if let Err(e) = state
+        state
             .metadata_store
             .index_metadata(&collection_name, doc_id, &vec_input.payload)
             .await
-        {
-            debug!(
-                "Failed to index metadata for doc_id {}: {} (continuing)",
-                doc_id, e
-            );
-        }
+            .map_err(|e| {
+                ApiError::Internal(akidb_core::Error::Storage(format!(
+                    "Failed to index metadata for doc_id {}: {}. Aborting insert to maintain consistency.",
+                    doc_id, e
+                )))
+            })?;
     }
 
-    // Extract vectors and payloads for persistence to S3
-    let (vectors, payloads) = state
-        .index_provider
-        .extract_for_persistence(&index_handle)
-        .map_err(ApiError::Internal)?;
-
-    // Only persist if we have data
-    if !vectors.is_empty() {
+    // Persist vectors to S3 directly from request payload
+    // IMPORTANT: We persist from req.vectors instead of extracting from index to avoid
+    // concurrent insert issues. The index's internal vector positions are non-deterministic
+    // under concurrent writes, so using skip(start_doc_id) would fail when a later-reserved
+    // batch completes add_batch() first. By persisting the original request data, we ensure
+    // correctness regardless of concurrent execution order.
+    if !req.vectors.is_empty() {
         debug!(
-            "Extracted {} vectors and {} payloads for persistence",
-            vectors.len(),
-            payloads.len()
+            "Persisting {} vectors to S3 for segment {}",
+            req.vectors.len(),
+            segment_id
         );
 
-        let start_index = usize::try_from(start_doc_id).map_err(|_| {
-            ApiError::Internal(akidb_core::Error::Storage(
-                "Failed to convert doc_id to index for persistence".to_string(),
-            ))
-        })?;
-        let expected_len = batch_len;
-        let new_vectors: Vec<Vec<f32>> = vectors
-            .into_iter()
-            .skip(start_index)
-            .take(expected_len)
+        // Extract vectors and payloads directly from request
+        let new_vectors: Vec<Vec<f32>> = req
+            .vectors
+            .iter()
+            .map(|v| v.vector.clone())
             .collect();
-        let new_payloads: Vec<serde_json::Value> = payloads
-            .into_iter()
-            .skip(start_index)
-            .take(expected_len)
+        let new_payloads: Vec<serde_json::Value> = req
+            .vectors
+            .iter()
+            .map(|v| v.payload.clone())
             .collect();
-
-        if new_vectors.len() != expected_len || new_payloads.len() != expected_len {
-            return Err(ApiError::Internal(akidb_core::Error::Storage(
-                "Persisted batch size mismatch - index returned inconsistent vector count"
-                    .to_string(),
-            )));
-        }
 
         // Create metadata block from payloads
         let metadata = akidb_storage::MetadataBlock::from_json(new_payloads).map_err(|e| {

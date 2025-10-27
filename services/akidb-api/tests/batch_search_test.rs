@@ -413,8 +413,11 @@ async fn test_batch_search_collection_not_found() {
     let app = build_router_with_auth(state, AuthConfig::disabled());
 
     let batch_request = json!({
+        "collection": "",
+        "timeout_ms": 1000,
         "queries": [
             {
+                "id": "q1",
                 "vector": vec![1.0; 128],
                 "top_k": 1
             }
@@ -425,7 +428,7 @@ async fn test_batch_search_collection_not_found() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/collections/nonexistent/batch_search")
+                .uri("/collections/nonexistent/batch-search")
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&batch_request).unwrap()))
                 .unwrap(),
