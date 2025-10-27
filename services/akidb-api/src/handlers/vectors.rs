@@ -18,6 +18,11 @@ use uuid::Uuid;
 /// Limit: 10,000 vectors × ~2KB each = ~20MB payload (reasonable for single request)
 const MAX_INSERT_BATCH_SIZE: usize = 10_000;
 
+/// Maximum size of a single payload in bytes (100KB).
+/// This prevents DoS attacks via individual oversized JSON payloads.
+/// Rationale: Most metadata payloads should be < 10KB. 100KB provides generous headroom.
+const MAX_PAYLOAD_SIZE_BYTES: usize = 100 * 1024; // 100KB
+
 /// Request to insert vectors
 #[derive(Debug, Deserialize)]
 pub struct InsertVectorsRequest {
@@ -88,6 +93,28 @@ pub async fn insert_vectors(
                 }
                 other => other,
             })?;
+    }
+
+    // Validate payload sizes to prevent DoS via oversized JSON payloads
+    // IMPORTANT: Even if batch size is within limits, individual payloads could be enormous
+    // (e.g., 10K vectors with 10MB payloads each = 100GB request). This check prevents
+    // memory exhaustion attacks.
+    for (idx, vec_input) in req.vectors.iter().enumerate() {
+        let payload_str = serde_json::to_string(&vec_input.payload).map_err(|e| {
+            ApiError::Validation(format!(
+                "Vector at index {}: Failed to serialize payload: {}",
+                idx, e
+            ))
+        })?;
+        let payload_size = payload_str.len();
+
+        if payload_size > MAX_PAYLOAD_SIZE_BYTES {
+            return Err(ApiError::Validation(format!(
+                "Vector at index {}: Payload size {} bytes exceeds maximum allowed {} bytes. \
+                 Please reduce payload size or split across multiple documents.",
+                idx, payload_size, MAX_PAYLOAD_SIZE_BYTES
+            )));
+        }
     }
 
     let batch_len = req.vectors.len();

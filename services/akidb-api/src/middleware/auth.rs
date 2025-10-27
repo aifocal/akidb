@@ -101,14 +101,14 @@ pub async fn auth_middleware(config: Arc<AuthConfig>, request: Request, next: Ne
         return next.run(request).await;
     }
 
-    // Skip auth for health check and metrics endpoints (for Kubernetes probes & Prometheus)
+    // Only bypass auth for /health/live endpoint (for Kubernetes liveness probes)
+    // IMPORTANT: Metrics and readiness endpoints expose sensitive cluster information
+    // (WAL sizes, vector counts, service version, readiness state) and must be protected
+    // to prevent reconnaissance attacks. Only the liveness probe needs unauthenticated
+    // access for K8s to detect if the process is alive.
     let path = request.uri().path();
-    if path == "/health"
-        || path == "/health/live"
-        || path == "/health/ready"
-        || path == "/metrics"
-    {
-        debug!("Skipping auth for public endpoint: {}", path);
+    if path == "/health/live" {
+        debug!("Skipping auth for liveness probe: {}", path);
         return next.run(request).await;
     }
 
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_health_check_bypasses_auth() {
+    async fn test_health_check_requires_auth() {
         let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
         let app = Router::new()
             .route("/health", get(test_handler))
@@ -270,10 +270,30 @@ mod tests {
                 auth_middleware(config, req, next)
             }));
 
+        // Without auth - should fail
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "/health should require authentication to prevent information disclosure"
+        );
+
+        // With valid auth - should succeed
         let response = app
             .oneshot(
                 Request::builder()
                     .uri("/health")
+                    .header("Authorization", "Bearer test-key")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -311,7 +331,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_health_ready_bypasses_auth() {
+    async fn test_health_ready_requires_auth() {
         let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
         let app = Router::new()
             .route("/health/ready", get(test_handler))
@@ -320,7 +340,9 @@ mod tests {
                 auth_middleware(config, req, next)
             }));
 
+        // Without auth - should fail
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/health/ready")
@@ -332,13 +354,27 @@ mod tests {
 
         assert_eq!(
             response.status(),
-            StatusCode::OK,
-            "Readiness probe should bypass auth for Kubernetes"
+            StatusCode::UNAUTHORIZED,
+            "/health/ready exposes cluster readiness state and must require auth"
         );
+
+        // With valid auth - should succeed
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .header("Authorization", "Bearer test-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
-    async fn test_metrics_bypasses_auth() {
+    async fn test_metrics_requires_auth() {
         let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
         let app = Router::new()
             .route("/metrics", get(test_handler))
@@ -347,7 +383,9 @@ mod tests {
                 auth_middleware(config, req, next)
             }));
 
+        // Without auth - should fail
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/metrics")
@@ -359,8 +397,22 @@ mod tests {
 
         assert_eq!(
             response.status(),
-            StatusCode::OK,
-            "Metrics endpoint should bypass auth for Prometheus"
+            StatusCode::UNAUTHORIZED,
+            "/metrics exposes sensitive cluster information (WAL sizes, vector counts, etc.) and must require auth"
         );
+
+        // With valid auth - should succeed
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .header("Authorization", "Bearer test-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
