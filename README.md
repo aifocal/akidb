@@ -1,7 +1,8 @@
 # AkiDB
 
-[![CI](https://github.com/defai-digital/akidb/workflows/CI/badge.svg)](https://github.com/defai-digital/akidb/actions)
+[![CI](https://github.com/aifocal/akidb/workflows/CI/badge.svg)](https://github.com/aifocal/akidb/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Stars](https://img.shields.io/github/stars/aifocal/akidb?style=social)](https://github.com/aifocal/akidb)
 
 **AkiDB: The S3-Native Vector Database for the AI Era.**
 
@@ -114,7 +115,7 @@ AkiDB is designed for teams who value **simplicity, cost-efficiency, and control
 ### Run Locally
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/defai-digital/akidb.git
+    git clone https://github.com/aifocal/akidb.git
     cd akidb
     ```
 
@@ -193,24 +194,37 @@ The key innovation is in the **Storage Layer**. Data is written to a Write-Ahead
 
 **What's Working**:
 - ✅ Core architecture and trait abstractions (StorageBackend, IndexProvider)
-- ✅ S3 storage integration with object_store crate
-- ✅ Development environment (Docker + MinIO)
-- ✅ Basic API endpoints (collections, insert, search)
-- ✅ 21 tests passing (validation, bootstrap, e2e flows)
+- ✅ S3 storage backend with full CRUD operations
+- ✅ HNSW index using hnsw_rs (2.86x faster than instant-distance)
+- ✅ WAL system with append-only operations and crash recovery
+- ✅ SEGv1 binary format with Zstd compression
+- ✅ Advanced filter pushdown (3-tier strategy)
+- ✅ Batch query API with parallel execution
+- ✅ Production metrics (13 Prometheus metrics)
+- ✅ Health check endpoints (Kubernetes-ready)
+- ✅ 171/171 tests passing (100% pass rate)
 
-**In Progress** (Phase 3 M2):
-- 🔄 S3 Storage Backend - Full implementation of core methods
-- 🔄 WAL Operations - Crash-safe append/replay
-- 🔄 Index Provider - Wire native index to storage layer
-- 🔄 Production readiness - Integration tests and observability
+**In Progress** (Phase 4 M2):
+- 🔄 OpenTelemetry distributed tracing
+- 🔄 Jaeger exporter integration
+- 🔄 Query profiling tools
+- 🔄 Production deployment automation
 
-### ⏳ **Phase 3: Core Implementation (In Progress)**
+### ✅ **Phase 3: Core Implementation (Complete)**
 - **Goal:** Complete storage, WAL, and index implementation
 - **Key Milestones:**
     - M1: ✅ Benchmark harness and baseline metrics
-    - M2: 🔄 S3 backend + WAL + Index provider (current)
-    - M3: Query planner optimizations
-    - M4: Production monitoring and observability
+    - M2: ✅ S3 backend + WAL + HNSW index
+    - M3: ✅ hnsw_rs migration (2.86x performance improvement)
+    - M4: ✅ Production monitoring and observability
+
+### ⏳ **Phase 4: Production Features (In Progress - 60% Complete)**
+- **Goal:** Production-ready monitoring and deployment
+- **Key Milestones:**
+    - M1: ✅ Metrics & Monitoring (Prometheus, health checks, structured logging)
+    - M2: 🔄 Observability (OpenTelemetry, Jaeger) - Current
+    - M3: Operational Features (graceful shutdown, config management)
+    - M4: Documentation (deployment guides, API reference)
 
 ### 🚀 **Phase 4: Cloud-Native Differentiation (Q1 2025)**
 - **Goal:** Establish competitive advantages in cloud-native vector search

@@ -17,15 +17,54 @@ use akidb_index::NativeIndexProvider;
 use akidb_query::{
     BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
 };
-use akidb_storage::{MemoryMetadataStore, MemoryStorageBackend, MetadataStore, S3WalBackend};
+use akidb_storage::{
+    MemoryMetadataStore, MemoryStorageBackend, MetadataStore, S3Config, S3StorageBackend,
+    S3WalBackend, StorageBackend,
+};
 use query_cache::QueryCache;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tracing::info;
 
 /// Boots the AkiDB API stack (REST + gRPC).
 pub async fn run_server() -> Result<()> {
-    // Create components
-    let storage = Arc::new(MemoryStorageBackend::new());
+    // Check if we should use in-memory storage (for tests or development)
+    let use_memory = std::env::var("AKIDB_USE_MEMORY_BACKEND")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+
+    let storage: Arc<dyn StorageBackend> = if use_memory {
+        info!("Using in-memory storage backend (AKIDB_USE_MEMORY_BACKEND=true)");
+        Arc::new(MemoryStorageBackend::new())
+    } else {
+        // Load S3 configuration from environment variables
+        let s3_config = S3Config {
+            endpoint: std::env::var("AKIDB_S3_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:9000".to_string()),
+            region: std::env::var("AKIDB_S3_REGION")
+                .unwrap_or_else(|_| "us-east-1".to_string()),
+            access_key: std::env::var("AKIDB_S3_ACCESS_KEY")
+                .map_err(|_| Error::Internal("AKIDB_S3_ACCESS_KEY environment variable not set".to_string()))?,
+            secret_key: std::env::var("AKIDB_S3_SECRET_KEY")
+                .map_err(|_| Error::Internal("AKIDB_S3_SECRET_KEY environment variable not set".to_string()))?,
+            bucket: std::env::var("AKIDB_S3_BUCKET")
+                .unwrap_or_else(|_| "akidb".to_string()),
+            ..Default::default()
+        };
+
+        info!(
+            "Initializing S3 storage backend: endpoint={}, bucket={}, region={}",
+            s3_config.endpoint, s3_config.bucket, s3_config.region
+        );
+
+        // Create S3 storage backend
+        Arc::new(
+            S3StorageBackend::new(s3_config)
+                .map_err(|e| Error::Internal(format!("Failed to initialize S3 backend: {}", e)))?
+        )
+    };
+
     let index_provider = Arc::new(NativeIndexProvider::new());
     let planner: Arc<dyn QueryPlanner> = Arc::new(BasicQueryPlanner::new());
     let engine: Arc<dyn ExecutionEngine> =
@@ -58,17 +97,58 @@ pub async fn run_server() -> Result<()> {
     bootstrap::bootstrap_collections(&state).await?;
 
     // Build router
-    let router = rest::build_router(state);
-    let grpc_builder = grpc::build_grpc_server();
-    info!("akidb-api placeholder started");
+    let app = rest::build_router(state);
 
-    // Placeholder waiting for full wiring. For now just await shutdown signal.
-    tokio::signal::ctrl_c()
+    // Parse bind address (use environment variable or default)
+    let bind_address = std::env::var("AKIDB_BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let addr: SocketAddr = bind_address
+        .parse()
+        .map_err(|e| Error::Validation(format!("Invalid bind address '{}': {}", bind_address, e)))?;
+
+    info!("Starting AkiDB API server on {}", addr);
+
+    // Bind TCP listener
+    let listener = TcpListener::bind(addr)
         .await
-        .map_err(|err| Error::Internal(format!("failed to wait for shutdown signal: {err}")))?;
+        .map_err(|e| Error::Internal(format!("Failed to bind to {}: {}", addr, e)))?;
 
-    // Drop handles to make lints happy until full impl lands.
-    drop((router, grpc_builder));
-    info!("akidb-api shutdown complete");
+    info!("Server successfully bound to {}", addr);
+
+    // Serve with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .map_err(|e| Error::Internal(format!("Server error: {}", e)))?;
+
+    info!("AkiDB API server shutdown complete");
     Ok(())
+}
+
+/// Graceful shutdown signal handler
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install CTRL+C signal handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Received CTRL+C signal, initiating graceful shutdown");
+        }
+        _ = terminate => {
+            info!("Received SIGTERM signal, initiating graceful shutdown");
+        }
+    }
 }

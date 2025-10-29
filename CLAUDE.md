@@ -14,23 +14,23 @@ Phase 3: Production Features            █████████████�
   ├─ M2: HNSW Index & Storage           ████████████████████ 100% ✅
   ├─ M3: hnsw_rs Migration Complete     ████████████████████ 100% ✅
   └─ M4: Production Monitoring          ████░░░░░░░░░░░░░░░░  20% 🚧
-Phase 4: Production Deployment          ████████░░░░░░░░░░░░  40% 🚧
-  ├─ M1: Metrics & Monitoring           █████████████░░░░░░░  66% 🚧
+Phase 4: Production Deployment          ████████████░░░░░░░░  60% 🚧
+  ├─ M1: Metrics & Monitoring           ████████████████████ 100% ✅
   │  ├─ Prometheus Metrics              ████████████████████ 100% ✅
   │  ├─ Health Checks                   ████████████████████ 100% ✅
-  │  └─ Structured Logging              ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+  │  └─ Structured Logging              ████████████████████ 100% ✅
   ├─ M2: Observability                  ░░░░░░░░░░░░░░░░░░░░   0% ⏳
   ├─ M3: Operational Features           ░░░░░░░░░░░░░░░░░░░░   0% ⏳
   └─ M4: Documentation                  ░░░░░░░░░░░░░░░░░░░░   0% ⏳
 
-Current Status: Phase 4 M1 In Progress - 2 Bugs Fixed via Ultrathink
+Current Status: Phase 4 M1 COMPLETE - Ready for Phase 4 M2 ✅
 Tests: 171/171 passing (100%)
-Metrics: 13 Prometheus metrics operational, now tracks ALL responses ✅
+Metrics: 13 Prometheus metrics operational, tracks ALL responses ✅
 Health: 3 health endpoints operational, Kubernetes-ready probes ✅
-Bug Fixes: Auth bypass (critical) + Middleware ordering (medium) - both fixed
+Security: 6 bugs fixed (auth bypass, middleware ordering, race conditions, DoS) ✅
 Library: hnsw_rs (2.86x faster than instant-distance on 100K vectors)
 Performance: Expected P95 improvement from 165-173ms to 58-82ms @ 1M vectors
-Next: Phase 4 M1.3 - Structured Logging
+Next: Phase 4 M2 - OpenTelemetry Observability
 ```
 
 **關鍵指標**:
@@ -99,14 +99,20 @@ Rust 編寫的分散式向量資料庫，使用 S3-compatible storage backend，
 - ✅ Full REST API (create, insert, search collections)
 - ✅ Advanced filter pushdown (3-tier strategy based on selectivity)
 - ✅ Batch query API with parallel execution
-- ✅ 159/159 tests passing (100%)
+- ✅ 171/171 tests passing (100%)
 - ✅ Production-ready code (zero warnings)
 
-### 下一步 (Phase 4)
-1. ⏳ Prometheus metrics & monitoring
-2. ⏳ OpenTelemetry tracing
-3. ⏳ Production deployment automation
-4. ⏳ Performance benchmarking with hnsw_rs
+### 當前功能 (Phase 4 M1 完成)
+- ✅ Prometheus metrics (13 metrics)
+- ✅ Health check endpoints (/health, /health/live, /health/ready)
+- ✅ Structured logging (tracing-subscriber)
+- ✅ Security hardening (6 bugs fixed)
+
+### 下一步 (Phase 4 M2)
+1. ⏳ OpenTelemetry distributed tracing
+2. ⏳ Jaeger exporter integration
+3. ⏳ Query profiling tools
+4. ⏳ Production deployment automation
 
 ---
 
@@ -179,14 +185,26 @@ cargo clippy --fix --workspace     # 自動修復警告
 # 單一測試
 cargo test -p akidb-storage test_name
 
+# 執行特定 crate 的所有測試
+cargo test -p akidb-api
+cargo test -p akidb-storage
+cargo test -p akidb-index
+
 # 啟用日誌
 RUST_LOG=debug cargo test test_name -- --nocapture
+
+# 啟用特定模組的 trace 日誌
+RUST_LOG=akidb_index=trace cargo test -- --nocapture
+RUST_LOG=akidb_api::bootstrap=debug cargo test -- --nocapture
 
 # 完整 backtrace
 RUST_BACKTRACE=full cargo test test_name
 
 # 檢查編譯
 cargo check --workspace
+
+# 執行被 ignore 的測試 (長時間測試)
+cargo test --workspace -- --ignored
 ```
 
 ### 效能測試
@@ -337,93 +355,107 @@ RUST_BACKTRACE=full cargo test
 
 ---
 
+## 💡 常見開發場景
+
+### 新增 API Endpoint
+```rust
+// 1. 在 services/akidb-api/src/handlers/ 新增 handler
+// 2. 定義 request/response 類型
+// 3. 在 services/akidb-api/src/lib.rs 註冊路由
+// 4. 在 services/akidb-api/tests/ 新增測試
+
+// 範例：新增 GET /collections/:name/stats endpoint
+// handlers/collections.rs:
+pub async fn get_collection_stats(
+    Path(name): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<CollectionStats>, AppError> {
+    // 實作邏輯
+}
+
+// lib.rs:
+.route("/collections/:name/stats", get(handlers::collections::get_collection_stats))
+```
+
+### 實作新的 IndexProvider
+```rust
+// 1. 在 crates/akidb-index/src/ 建立新檔案 (例如: faiss.rs)
+// 2. 實作 IndexProvider trait (src/provider.rs:10)
+// 3. 實作必要方法: build, add_batch, search, serialize, deserialize
+// 4. 參考 hnsw.rs:1 或 native.rs:1 作為範例
+// 5. 使用 crates/akidb-index/tests/provider_contract.rs 進行測試
+
+// 關鍵 trait methods:
+// - build: 從向量建立索引
+// - add_batch: 增量新增向量
+// - search: KNN 搜尋
+// - serialize/deserialize: 持久化
+```
+
+### 除錯 S3 相關問題
+```bash
+# 1. 確認 MinIO 容器運作正常
+docker compose ps
+docker compose logs minio
+
+# 2. 檢查 S3 連線
+curl http://localhost:9000/minio/health/live
+
+# 3. 查看 bucket 內容 (透過 MinIO Console)
+open http://localhost:9001  # akidb / akidbsecret
+
+# 4. 啟用 S3 詳細日誌
+RUST_LOG=akidb_storage=debug,object_store=debug cargo test -- --nocapture
+
+# 5. 檢查環境變數
+cat .env
+```
+
+### 除錯 Index 效能問題
+```bash
+# 1. 執行 benchmark 取得 baseline
+cargo bench --bench vector_search -- --save-baseline before
+
+# 2. 修改 HNSW 參數 (crates/akidb-index/src/hnsw.rs)
+# ef_search, ef_construction, M
+
+# 3. 重新執行 benchmark 並比較
+cargo bench --bench vector_search -- --baseline before
+
+# 4. 查看詳細報告
+open target/criterion/report/index.html
+
+# 5. 啟用 trace 日誌分析
+RUST_LOG=akidb_index=trace cargo test test_hnsw_search -- --nocapture
+```
+
+---
+
 ## 🤝 AutomatosX 整合
 
-此專案使用 [AutomatosX](https://github.com/defai-digital/automatosx) - AI agent 編排平台，具備持久記憶與多代理協作。
+此專案使用 [AutomatosX](https://github.com/defai-digital/automatosx) 進行 AI agent 協作。
 
-### 常用命令
+### 快速參考
 
 ```bash
 # 列出可用 agents
 ax list agents
 
 # 執行 agent 任務
-ax run backend "create a REST API"
+ax run backend "task description"
+ax run security "audit code"
 
-# 搜尋記憶
+# 搜尋過去的對話與決策
 ax memory search "keyword"
-
-# 系統狀態
-ax status
 ```
 
-### 在 Claude Code 中使用
-
-**自然語言 (推薦)**:
-```
-"請與 ax agent backend 協作實作使用者認證"
-"請 ax security agent 審查程式碼漏洞"
-```
-
-**Slash 命令**:
-```
-/ax-agent backend, create a REST API
-/ax-agent security, audit authentication
-```
-
-### 可用 Agents
-
+### 常用 Agents
 - **backend** - Rust/Go/Python 後端開發
-- **frontend** - React/Next.js 前端開發
-- **security** - 安全稽核與威脅建模
+- **security** - 安全稽核
 - **quality** - QA 與測試
-- **devops** - DevOps 與基礎設施
-- **product** - 產品管理
 - **cto** - 技術策略
 
-完整列表: `ax list agents --format json`
-
-### 核心功能
-
-1. **持久記憶**: 自動保存所有對話與決策
-2. **多代理協作**: Agents 自動委派任務
-3. **跨 Provider 支援**: Claude, Gemini, OpenAI (自動 fallback)
-
-### 配置
-
-編輯 `automatosx.config.json`:
-```json
-{
-  "providers": {
-    "claude-code": {"enabled": true, "priority": 1},
-    "gemini-cli": {"enabled": true, "priority": 2}
-  },
-  "execution": {
-    "defaultTimeout": 1500000,
-    "maxRetries": 3
-  }
-}
-```
-
-### 進階功能
-
-```bash
-# 平行執行
-ax run product "Design auth system" --parallel
-
-# 可恢復執行
-ax run backend "Refactor codebase" --resumable
-
-# 串流輸出
-ax run backend "Explain codebase" --streaming
-```
-
-### 資源
-
-- **文件**: https://github.com/defai-digital/automatosx
-- **Agent 目錄**: `.automatosx/agents/`
-- **Memory 資料庫**: `.automatosx/memory/memories.db`
-- **Workspace**: `automatosx/PRD/`, `automatosx/tmp/`
+完整文件請參考全域 CLAUDE.md 或 https://github.com/defai-digital/automatosx
 
 ---
 
