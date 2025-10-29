@@ -7,30 +7,40 @@
 [![GitHub Issues](https://img.shields.io/github/issues/aifocal/akidb)](https://github.com/aifocal/akidb/issues)
 [![GitHub Release](https://img.shields.io/github/v/release/aifocal/akidb?include_prereleases)](https://github.com/aifocal/akidb/releases)
 
-**AkiDB: The MinIO-Native Vector Database for Sovereign AI & Offline RAG.**
+**AkiDB: ARM-native, S3-backed vector database for offline semantic retrieval and edge AI pipelines.**
 
-AkiDB is a high-performance, open-source vector database built from the ground up for MinIO and S3-compatible storage. Written in Rust, it's designed for **air-gapped deployments, data sovereignty, and auditable offline RAG systems** where cost, compliance, and control matter most.
+AkiDB is a high-performance, open-source vector database built exclusively for **ARM platforms** (Apple Silicon, NVIDIA Jetson, ARM cloud) with MinIO/S3 as the primary storage backend. Written in Rust, it's designed for **air-gapped deployments, edge inference, and power-efficient offline RAG** where sovereignty, cost, and energy consumption matter most.
 
 ---
 
 ## 1. Why AkiDB Matters
 
-In regulated industries and sovereign AI deployments, **vector databases face unique challenges**:
+In edge AI and sovereign deployments, **x86-based vector databases are fundamentally misaligned**:
 
-*   **Managed Services (Pinecone, Weaviate Cloud):** Cannot operate in air-gapped networks. Data leaves your premises, violating sovereignty requirements. Costs scale unpredictably.
-*   **Cloud-First Solutions (Milvus, Weaviate self-hosted):** Designed for cloud, not offline. Complex multi-component stacks (etcd, Kafka, etc.) are hard to audit and certify. No built-in compliance features.
-*   **Embedding-Only Libraries:** Lack versioning, auditability, ILM, and production-grade durability.
+*   **High Power Consumption:** x86 servers draw 150W+ per node. Edge deployments (ships, field offices, IoT gateways) can't support this.
+*   **Cloud Lock-In:** Managed services (Pinecone, Weaviate Cloud) require internet connectivity and send data off-premises.
+*   **Complex Stacks:** Multi-component architectures (etcd, Kafka, Pulsar) are hard to deploy, audit, and maintain in air-gapped environments.
+*   **x86 Tax:** Intel/AMD chips cost more and run hotter than ARM equivalents (Apple Silicon, Jetson, Graviton).
 
-**AkiDB offers a sovereign alternative.** Built for **MinIO-native offline deployments**, it brings:
+**AkiDB offers an ARM-native alternative.** Built exclusively for **ARM platforms + MinIO/S3 storage**, it brings:
 
-*   **Air-Gap Ready:** Zero cloud dependencies. Runs entirely on your infrastructure.
-*   **Auditable & Compliant:** Object Lock, versioning, audit trails. Meets Protected B / Confidential requirements.
-*   **Cost-Optimized:** MinIO cold storage + tiered caching = 90%+ cost reduction vs. cloud vector DBs.
-*   **Portable:** Package indices as `.akipkg` for cross-site migration and forensic replay.
+*   **Power Efficiency:** ≤50W per node (vs 150W+ x86). Deploy on Mac Mini, Jetson, or ARM cloud.
+*   **Edge-Ready:** Run offline on Jetson for inference at the edge (ships, vehicles, remote sites).
+*   **Cost-Optimized:** Mac Studio M2 Ultra (~$5,000) outperforms $15,000 x86 servers at 1/3 the power.
+*   **Platform Lock-In (By Design):** Explicitly targets ARM ecosystem. No x86 support = simpler codebase and deeper ARM optimizations.
 
 ## 2. Core Value Proposition
 
-AkiDB is built for **MinIO-first deployments** where sovereignty, auditability, and TCO are non-negotiable.
+AkiDB is built for **ARM platforms + MinIO storage** where power efficiency, sovereignty, and edge deployment are non-negotiable.
+
+### ✅ **ARM-Native Performance**
+*   **Target Platforms:**
+    *   **macOS Apple Silicon:** M2/M3/M4 (MLX Metal acceleration)
+    *   **NVIDIA Jetson:** Orin Nano, Orin NX, AGX Orin (CUDA Tensor Cores)
+    *   **ARM Cloud:** AWS Graviton, Oracle A1, Azure Cobalt (CPU SIMD)
+*   **Compute Backends:** Pluggable trait system (`ComputeBackend`) with NEON, MLX, CUDA
+*   **Power Efficiency:** ≤50W per node target (measured on Jetson Orin NX)
+*   **No x86 Support:** Explicit ARM-only focus for simpler codebase and deeper optimizations
 
 ### ✅ **Data Sovereignty & Compliance**
 *   **Air-Gapped Deployments:** Runs entirely offline. No cloud API calls, telemetry, or external dependencies.
@@ -44,10 +54,14 @@ AkiDB is built for **MinIO-first deployments** where sovereignty, auditability, 
 
 ### ✅ **90%+ Cost Reduction**
 *   **MinIO Cold Storage:** Primary storage on HDD/tape ($0.01-0.02/GB) vs. cloud block storage ($0.10/GB).
-*   **Tiered Caching:** Hot (NVMe cache) → Warm (RocksDB/DuckDB) → Cold (MinIO/Zstd).
+*   **Two-Tier Storage:** Hot (NVMe LRU cache) → Cold (MinIO/Zstd compression).
+*   **ARM Hardware Economics:**
+    *   **Mac Mini M2 Pro:** ~$1,800 (40W, 32GB RAM, 1TB NVMe)
+    *   **Jetson Orin NX:** ~$899 (25W, 16GB RAM, edge-optimized)
+    *   **Oracle A1 (ARM cloud):** FREE tier (4 OCPU, 24GB RAM)
 *   **Example TCO (10M vectors, 1536-dim):**
     *   **Pinecone p1.x1:** ~$70/month
-    *   **AkiDB on MinIO:** ~$0.50/month (storage) + stateless compute
+    *   **AkiDB on 3x Mac Mini:** ~$0.50/month (storage) + $5,400 one-time hardware
 
 ### ✅ **Portable & Offline-First**
 *   **`.akipkg` Packaging:** Freeze index snapshots with signatures for cross-site migration.
@@ -73,26 +87,30 @@ AkiDB is built for **MinIO-first deployments** where sovereignty, auditability, 
 
 ## 3. Who Should Use AkiDB?
 
-AkiDB is designed for **regulated industries, government, and sovereign AI deployments**:
+AkiDB is designed for **ARM-first deployments** where power efficiency, edge compute, and offline operation are critical:
 
 ### Primary Audience
 
-#### 🏛️ **Government & Public Sector**
+#### 🚢 **Edge AI & Offline Inference**
+*   **Maritime & Transportation:** Ships, trains, autonomous vehicles (Jetson + offline RAG).
+*   **Remote Sites:** Oil rigs, mining operations, field hospitals (low-power ARM nodes).
+*   **IoT Gateways:** Factory floors, smart buildings (Jetson Orin Nano as edge aggregator).
+*   **Military & Defense:** Air-gapped tactical systems, drones, mobile command centers.
+
+#### 💻 **macOS Developer Ecosystem**
+*   **Mac Studio Clusters:** ML teams running on Apple Silicon (M2/M3/M4 clusters).
+*   **MLX Integration:** Leverage Metal GPU acceleration for batch operations.
+*   **Embedded RAG:** Ship vector search inside macOS applications (no Python runtime).
+
+#### 🏛️ **Government & Regulated Industries**
 *   **Air-Gapped Networks:** Defense, intelligence, classified systems (Protected B/C, Top Secret).
-*   **Data Sovereignty:** Municipal/provincial/federal systems where data cannot leave national borders.
-*   **Compliance Requirements:** PIPEDA, FedRAMP, GDPR, HIPAA—need audit trails and WORM storage.
-*   **Multi-Language RAG:** Bilingual (EN/FR, ZH/EN) document search for government services.
+*   **Data Sovereignty:** Systems where data cannot leave premises or national borders.
+*   **Compliance Requirements:** PIPEDA, FedRAMP, GDPR, HIPAA with audit trails.
 
-#### 🏦 **Regulated Industries**
-*   **Financial Services:** Trade surveillance, compliance document search, KYC/AML systems.
-*   **Healthcare:** Clinical trial data, patient record search (HIPAA/PHIPA compliant).
-*   **Legal & Professional Services:** Document discovery, contract analysis, case law search.
-*   **Energy & Utilities:** SCADA/OT network isolation, operational document retrieval.
-
-#### 🏭 **Private Infrastructure / On-Prem**
-*   **Cost-Conscious Enterprises:** Million+ documents with predictable TCO on commodity hardware.
-*   **Multi-Site Deployments:** Branch offices, factories, ships—MinIO site replication + offline sync.
-*   **Custom Embedding Models:** Private fine-tuned models, domain-specific embeddings.
+#### ☁️ **ARM Cloud Cost Optimization**
+*   **AWS Graviton:** 40% better price/performance than x86 (according to AWS).
+*   **Oracle A1:** Always-free tier (4 OCPU, 24GB RAM) for dev/test.
+*   **Azure Cobalt:** Next-gen ARM VMs for cloud-native deployments.
 
 ### Secondary Audience
 
@@ -257,10 +275,11 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
 
 ### Key Innovations
 
-1. **Append-Only WAL:** O(1) sync writes to local disk, then async flush to MinIO.
-2. **Immutable Segments:** Once sealed, segments become WORM objects—tamper-proof.
-3. **Versioned Manifests:** Optimistic locking with MinIO versioning for concurrent writers.
-4. **`.akipkg` Snapshots:** Package index + manifest + metadata for offline migration.
+1. **ARM-Native Compute:** Pluggable `ComputeBackend` trait with NEON SIMD, MLX Metal (macOS), CUDA Tensor Cores (Jetson). See [ARM-Native Architecture](docs/arm-native-architecture.md).
+2. **Append-Only WAL:** O(1) sync writes to local disk, then async flush to MinIO.
+3. **Immutable Segments:** Once sealed, segments become WORM objects—tamper-proof.
+4. **Versioned Manifests:** Optimistic locking with MinIO versioning for concurrent writers.
+5. **`.akipkg` Snapshots:** Package index + manifest + metadata for offline migration.
 
 ---
 
