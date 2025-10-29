@@ -4,95 +4,128 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Stars](https://img.shields.io/github/stars/aifocal/akidb?style=social)](https://github.com/aifocal/akidb)
 
-**AkiDB: The S3-Native Vector Database for the AI Era.**
+**AkiDB: The MinIO-Native Vector Database for Sovereign AI & Offline RAG.**
 
-AkiDB is a high-performance, open-source vector database built from the ground up for S3-compatible storage. Written in Rust, it's designed to make vector search affordable, simple, and scalable for modern AI applications.
+AkiDB is a high-performance, open-source vector database built from the ground up for MinIO and S3-compatible storage. Written in Rust, it's designed for **air-gapped deployments, data sovereignty, and auditable offline RAG systems** where cost, compliance, and control matter most.
 
 ---
 
 ## 1. Why AkiDB Matters
 
-In the age of AI, **vector databases are critical infrastructure**. Every AI application—from semantic search to RAG systems to recommendation engines—relies on efficient similarity search over high-dimensional embeddings.
+In regulated industries and sovereign AI deployments, **vector databases face unique challenges**:
 
-However, existing solutions force a difficult choice:
+*   **Managed Services (Pinecone, Weaviate Cloud):** Cannot operate in air-gapped networks. Data leaves your premises, violating sovereignty requirements. Costs scale unpredictably.
+*   **Cloud-First Solutions (Milvus, Weaviate self-hosted):** Designed for cloud, not offline. Complex multi-component stacks (etcd, Kafka, etc.) are hard to audit and certify. No built-in compliance features.
+*   **Embedding-Only Libraries:** Lack versioning, auditability, ILM, and production-grade durability.
 
-*   **Managed Services (e.g., Pinecone):** Convenient but expensive, with costs that scale unpredictably. They create vendor lock-in with proprietary APIs and give you little control over your own data.
-*   **Self-Hosted Solutions (e.g., Milvus, Weaviate):** Open-source but notoriously complex. They require extensive Kubernetes knowledge and a fleet of microservices (like etcd, MinIO), turning database management into a full-time job.
+**AkiDB offers a sovereign alternative.** Built for **MinIO-native offline deployments**, it brings:
 
-**AkiDB offers a third way.** By embracing a **true S3-native architecture**, we solve the core problems of cost and complexity.
+*   **Air-Gap Ready:** Zero cloud dependencies. Runs entirely on your infrastructure.
+*   **Auditable & Compliant:** Object Lock, versioning, audit trails. Meets Protected B / Confidential requirements.
+*   **Cost-Optimized:** MinIO cold storage + tiered caching = 90%+ cost reduction vs. cloud vector DBs.
+*   **Portable:** Package indices as `.akipkg` for cross-site migration and forensic replay.
 
 ## 2. Core Value Proposition
 
-AkiDB's design philosophy is simple: use the right tool for the job. For durable, scalable, and cost-effective storage, nothing beats object storage like S3.
+AkiDB is built for **MinIO-first deployments** where sovereignty, auditability, and TCO are non-negotiable.
 
-#### ✅ **80%+ Cost Reduction**
-AkiDB leverages S3 as its primary storage layer. Instead of paying for expensive, always-on block storage or memory, you pay S3's low commodity rates ($0.023/GB). This fundamentally changes the cost equation for large-scale vector search.
+### ✅ **Data Sovereignty & Compliance**
+*   **Air-Gapped Deployments:** Runs entirely offline. No cloud API calls, telemetry, or external dependencies.
+*   **MinIO Security Integration:**
+    *   SSE-KMS encryption with KES/HashiCorp Vault
+    *   Object Lock (WORM) for immutable index segments
+    *   Versioning for forensic rollback
+    *   Legal Hold support for regulated industries
+*   **Audit Trails:** Every query generates a tamper-proof hash chain stored in MinIO audit buckets.
+*   **Certifiable:** Simplified stack (2 components) makes security audits and compliance certification feasible.
 
-*   **Example:** Storing 10 million `text-embedding-ada-002` vectors (1536-dim) costs:
-    *   **Pinecone (p1.x1 pod):** ~$70/month
-    *   **AkiDB on S3:** ~$1.50/month (storage) + stateless compute
+### ✅ **90%+ Cost Reduction**
+*   **MinIO Cold Storage:** Primary storage on HDD/tape ($0.01-0.02/GB) vs. cloud block storage ($0.10/GB).
+*   **Tiered Caching:** Hot (NVMe cache) → Warm (RocksDB/DuckDB) → Cold (MinIO/Zstd).
+*   **Example TCO (10M vectors, 1536-dim):**
+    *   **Pinecone p1.x1:** ~$70/month
+    *   **AkiDB on MinIO:** ~$0.50/month (storage) + stateless compute
 
-#### ✅ **Radical Simplicity**
-Our architecture consists of two components: a **stateless API server** and an **S3 bucket**. That's it.
-*   **No Raft Consensus:** We offload state management to S3, eliminating the need for complex coordination protocols.
-*   **No Sidecars:** No need to manage separate clusters for etcd, MinIO, or message queues.
-*   **Deploy in Minutes:** A single Docker container is all you need to get started.
+### ✅ **Portable & Offline-First**
+*   **`.akipkg` Packaging:** Freeze index snapshots with signatures for cross-site migration.
+*   **Offline Ingest:** Batch import from CSV/JSONL/Parquet with zero internet access.
+*   **Multi-Site Replication:** Leverage MinIO Site Replication for DR and geo-distribution.
 
-#### ✅ **Open Source & No Vendor Lock-in**
-AkiDB is MIT licensed. Your data, your infrastructure, your control.
-*   **Use Any S3 Provider:** AWS S3, Google Cloud Storage, Cloudflare R2, MinIO.
-*   **Transparent:** Audit every line of code. The roadmap is shaped by the community.
+### ✅ **Operational Simplicity**
+*   **Two Components:** AkiDB binary + MinIO cluster. No etcd, Kafka, or coordination layers.
+*   **Stateless Compute:** Horizontal scaling without state management complexity.
+*   **Single Binary:** No runtime dependencies. Deploy on bare metal, VM, or Kubernetes.
 
-#### ✅ **Performance & Safety in Rust**
-Built in Rust, AkiDB provides the trifecta of performance, memory safety, and fearless concurrency. This means fewer bugs, predictable performance, and a smaller operational footprint.
+### ✅ **Production-Grade Observability**
+*   **Built-in Metrics:** Prometheus endpoint with P50/P95/P99 latency, cache hit rates, MinIO API calls.
+*   **Health Checks:** Kubernetes-ready liveness/readiness probes.
+*   **Structured Logging:** `tracing-subscriber` with JSON output for log aggregation.
 
-#### ✅ **Composable Architecture**
-AkiDB's plugin-based design lets you choose your own:
-*   **Index Provider:** Native brute-force, HNSW, or bring your own (FAISS, etc.)
-*   **Storage Backend:** S3, Google Cloud Storage, Cloudflare R2, or MinIO
-*   **Clear Trait Abstractions:** Easy to understand, extend, and customize
-
-This prevents vendor lock-in and allows seamless integration with your existing infrastructure.
+### ✅ **Performance & Safety in Rust**
+*   **Memory Safety:** Zero-copy operations, no GC pauses.
+*   **Fearless Concurrency:** Lock-free data structures where possible.
+*   **HNSW Index:** 2.86x faster than instant-distance, configurable ef_search/ef_construction.
 
 ---
 
 ## 3. Who Should Use AkiDB?
 
-AkiDB is designed for teams who value **simplicity, cost-efficiency, and control**:
+AkiDB is designed for **regulated industries, government, and sovereign AI deployments**:
 
 ### Primary Audience
-*   **AI Application Builders** 🤖
-    - Building RAG systems, semantic search, or recommendation engines
-    - Need vector search but don't want to become database administrators
-    - Using Python/TypeScript/Rust tech stacks on AWS/GCP/Azure
 
-*   **Cost-Conscious Startups** 💰
-    - Scaling AI products without exponential infrastructure costs
-    - Budget-conscious teams ($100-$1000/month range)
-    - Want predictable pricing based on S3 storage + compute
+#### 🏛️ **Government & Public Sector**
+*   **Air-Gapped Networks:** Defense, intelligence, classified systems (Protected B/C, Top Secret).
+*   **Data Sovereignty:** Municipal/provincial/federal systems where data cannot leave national borders.
+*   **Compliance Requirements:** PIPEDA, FedRAMP, GDPR, HIPAA—need audit trails and WORM storage.
+*   **Multi-Language RAG:** Bilingual (EN/FR, ZH/EN) document search for government services.
+
+#### 🏦 **Regulated Industries**
+*   **Financial Services:** Trade surveillance, compliance document search, KYC/AML systems.
+*   **Healthcare:** Clinical trial data, patient record search (HIPAA/PHIPA compliant).
+*   **Legal & Professional Services:** Document discovery, contract analysis, case law search.
+*   **Energy & Utilities:** SCADA/OT network isolation, operational document retrieval.
+
+#### 🏭 **Private Infrastructure / On-Prem**
+*   **Cost-Conscious Enterprises:** Million+ documents with predictable TCO on commodity hardware.
+*   **Multi-Site Deployments:** Branch offices, factories, ships—MinIO site replication + offline sync.
+*   **Custom Embedding Models:** Private fine-tuned models, domain-specific embeddings.
 
 ### Secondary Audience
-*   **Rust Enthusiasts** 🦀
-    - Building high-performance systems in Rust
-    - Need embedded vector search without FFI overhead
-    - Value type safety and zero-cost abstractions
 
-*   **Enterprise Teams** 🏢
-    - Require full data sovereignty and control
-    - Need customizable, composable architectures
-    - Deploy on private infrastructure or multi-cloud environments
+#### 🦀 **Rust Ecosystem Builders**
+*   Embedded vector search in Rust applications (no FFI, no Python runtime).
+*   High-performance pipelines requiring type safety and zero-copy operations.
+
+#### 🔬 **Researchers & Academia**
+*   Reproducible AI experiments with versioned embeddings and immutable snapshots.
+*   Offline research environments without cloud access.
 
 ---
 
 ## 4. Competitive Advantage
 
-| Feature                | AkiDB (S3-Native)                               | Pinecone (Managed)      | Weaviate / Qdrant (Self-Hosted) | Milvus (Self-Hosted)                  |
-| ---------------------- | ----------------------------------------------- | ----------------------- | ------------------------------- | ------------------------------------- |
-| **Architecture**       | **Stateless API + S3**                          | Managed SaaS            | Stateful Node + Raft            | Microservices Cluster                 |
-| **Storage Cost**       | **$0.023/GB** (S3)                              | ~$0.77/GB (p1 pod)      | ~$0.10/GB (EBS)                 | ~$0.10/GB (EBS)                       |
-| **Deployment**         | **Single Docker Container**                     | N/A                     | Docker / K8s                    | **K8s Required** (etcd, MinIO, etc.)  |
-| **Vendor Lock-in**     | **None (MIT)**                                  | High                    | Low (BSD/Apache)                | Low (Apache)                          |
-| **Operational Burden** | **Minimal**                                     | None                    | Moderate                        | **High**                              |
+| Feature                  | **AkiDB (MinIO-Native)**                | Pinecone (Managed)      | Weaviate/Qdrant (Self-Hosted) | Milvus (Self-Hosted)                  |
+| ------------------------ | --------------------------------------- | ----------------------- | ----------------------------- | ------------------------------------- |
+| **Air-Gap Deployment**   | ✅ **Zero cloud dependencies**          | ❌ SaaS only            | ⚠️ Possible (complex)         | ⚠️ Requires etcd/Kafka                |
+| **Data Sovereignty**     | ✅ **100% on-prem**                     | ❌ Data leaves premises | ⚠️ Partial                    | ⚠️ Partial                            |
+| **Compliance Features**  | ✅ **Object Lock, Versioning, Audit**   | ❌ Proprietary          | ❌ None                       | ❌ None                               |
+| **Storage Cost**         | **$0.01-0.02/GB** (MinIO/HDD)           | ~$0.77/GB (p1 pod)      | ~$0.10/GB (EBS)               | ~$0.10/GB (EBS)                       |
+| **Architecture**         | **Stateless API + MinIO**               | Managed SaaS            | Stateful Node + Raft          | Microservices (etcd, Kafka, Pulsar)   |
+| **Deployment**           | **Single Binary + MinIO**               | N/A                     | Docker / K8s                  | **K8s Required**                      |
+| **Certifiability**       | ✅ **2 components** (easy audit)        | ❌ Black box            | ⚠️ 3-5 components             | ❌ 10+ components                     |
+| **Offline Operation**    | ✅ **Full offline (air-gap ready)**     | ❌ Internet required    | ⚠️ Partial                    | ⚠️ Partial                            |
+| **Portable Packaging**   | ✅ **`.akipkg` snapshots**              | ❌ Vendor lock-in       | ❌ None                       | ❌ None                               |
+| **Operational Burden**   | **Minimal** (stateless)                 | None (SaaS)             | Moderate                      | **High** (multi-component)            |
+| **Vendor Lock-in**       | **None (MIT)**                          | High                    | Low (BSD/Apache)              | Low (Apache)                          |
+
+### Key Differentiators
+
+1. **Compliance-First Design:** Built-in Object Lock, versioning, and audit trails—not bolted on.
+2. **Air-Gap Ready:** Zero external dependencies. Runs on closed networks.
+3. **MinIO-Native:** Deep integration with KES, ILM, Site Replication, Bucket Notifications.
+4. **Portable:** `.akipkg` packaging for cross-site migration and forensic replay.
+5. **Simplified Stack:** 2 components vs. 10+ for Milvus. Easier to audit, certify, and secure.
 
 ---
 
@@ -168,23 +201,63 @@ curl -X POST http://localhost:8080/collections/product_embeddings/search \
 
 ## 🏗️ Architecture
 
-AkiDB uses a clean, layered architecture designed for simplicity and performance.
+AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped deployments.
 
+### Application Layer
 ```
-┌─────────────────────────────────────────┐
-│         REST API (Axum)                 │  ← Stateless, horizontally scalable
-├─────────────────────────────────────────┤
-│   Query Layer (Planner/Executor)        │  ← Query optimization & filtering
-├─────────────────────────────────────────┤
-│     Index Layer (HNSW)                  │  ← In-memory ANN search
-├─────────────────────────────────────────┤
-│ Storage Layer (WAL / Segments / S3)     │  ← S3-native persistence & recovery
-├─────────────────────────────────────────┤
-│    Core Types (Collection/Manifest)     │  ← Domain models
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                  REST API (Axum) + gRPC (Tonic)                 │
+│                     Stateless, horizontally scalable            │
+├─────────────────────────────────────────────────────────────────┤
+│              Query Layer (Planner/Executor/Cache)               │
+│         • Filter pushdown  • Result caching  • Parallelization  │
+├─────────────────────────────────────────────────────────────────┤
+│                    Index Layer (HNSW / DiskANN)                 │
+│         • In-memory ANN  • Pre-filtering  • Range GET           │
+├─────────────────────────────────────────────────────────────────┤
+│              Storage Layer (WAL / Segments / MinIO)             │
+│    • Tiered caching (Hot/Warm/Cold)  • Versioning  • Audit     │
+├─────────────────────────────────────────────────────────────────┤
+│                 Core Types (Collection/Manifest)                │
+│              • Domain models  • SEGv1 format  • Metadata        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-The key innovation is in the **Storage Layer**. Data is written to a Write-Ahead Log (WAL) for durability and buffered. Once a certain size is reached, vectors are compressed into an immutable **Segment** file and uploaded to S3. The WAL is then truncated. This design combines the low latency of local writes with the cost-effectiveness and durability of S3.
+### Storage Tier (MinIO-Native)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        HOT TIER (Local NVMe)                    │
+│              LRU Cache + Pinned Hot Segments (P95 < 5ms)        │
+└─────────────────────────────────────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    WARM TIER (RocksDB/DuckDB)                   │
+│        Segment metadata + Bloom filters (P95 < 50ms)            │
+└─────────────────────────────────────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                  COLD TIER (MinIO + Zstd Compression)           │
+│   • Object Lock (WORM)  • Versioning  • KES Encryption         │
+│   • Site Replication  • ILM Policies  • Audit Logs             │
+│   • HDD/Tape Storage (P95 < 500ms, $0.01/GB)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### MinIO Integration Points
+
+1. **Security:** SSE-KMS (KES/Vault), Object Lock, Legal Hold
+2. **Durability:** Erasure Coding (e.g., 12D+4P), Versioning, Site Replication
+3. **Performance:** Multipart uploads, Range GET, Connection pooling
+4. **Events:** Bucket Notifications → NATS → Index rebuild triggers
+5. **ILM:** Lifecycle policies for automatic Hot→Warm→Cold transitions
+6. **Audit:** Query hash chains stored in MinIO audit buckets
+
+### Key Innovations
+
+1. **Append-Only WAL:** O(1) sync writes to local disk, then async flush to MinIO.
+2. **Immutable Segments:** Once sealed, segments become WORM objects—tamper-proof.
+3. **Versioned Manifests:** Optimistic locking with MinIO versioning for concurrent writers.
+4. **`.akipkg` Snapshots:** Package index + manifest + metadata for offline migration.
 
 ---
 
@@ -226,21 +299,41 @@ The key innovation is in the **Storage Layer**. Data is written to a Write-Ahead
     - M3: Operational Features (graceful shutdown, config management)
     - M4: Documentation (deployment guides, API reference)
 
-### 🚀 **Phase 4: Cloud-Native Differentiation (Q1 2025)**
-- **Goal:** Establish competitive advantages in cloud-native vector search
-- **Key Initiatives:**
-    - **S3 Optimization Layer:** Smart caching, S3 Select integration, lifecycle management
-    - **Distributed Query (MVP):** Basic sharding and query routing for 10M+ vectors
-    - **Zero-Ops Deployment:** Terraform modules, Kubernetes Helm charts, one-click AWS/GCP deployment
-    - **Rust SDK & Ecosystem:** LangChain, LlamaIndex, Hugging Face integrations
+### 🔐 **Phase 5: MinIO-Native Compliance & Security (Q1 2025)**
+- **Goal:** Deep MinIO integration for regulated industries
+- **Priority 1 (Compliance):**
+    - ✅ SSE-KMS encryption with KES/HashiCorp Vault
+    - ✅ Object Lock (WORM) for immutable index segments
+    - ✅ Versioning with snapshot/revert API
+    - ✅ Audit trail hash chains in MinIO audit buckets
+- **Priority 2 (Storage Optimization):**
+    - ✅ Hot/Warm/Cold tiered caching (NVMe → RocksDB → MinIO)
+    - ✅ Multipart uploads for large segments
+    - ✅ Range GET pre-fetching for sparse reads
+    - ✅ Segment merging to reduce S3 API call overhead
+- **Priority 3 (Events & Automation):**
+    - ✅ MinIO Bucket Notification → NATS → Index rebuild
+    - ✅ ILM policies for automatic tier transitions
+    - ✅ `.akipkg` packaging with signatures
 
-### 🌐 **Phase 5: Scale & Enterprise (Q2 2025+)**
-- **Goal:** Production-grade features for enterprise adoption
+### 🌐 **Phase 6: Offline RAG & Air-Gap Features (Q2 2025)**
+- **Goal:** Complete offline operation capabilities
 - **Key Initiatives:**
-    - Multi-tenancy and RBAC
-    - Hybrid search (vectors + metadata filtering)
-    - Multi-language clients (Python, TypeScript, Go)
-    - Advanced observability with OpenTelemetry
+    - **Offline Ingest:** CSV/JSONL/Parquet batch import with zero internet
+    - **Multi-Site Sync:** MinIO Site Replication integration for DR
+    - **Embedding Portability:** Package custom models in `.akipkg`
+    - **Air-Gap Tooling:** Offline installation scripts, dependency bundling
+    - **Multi-Language Support:** EN/FR/ZH/ES/JA document processing
+
+### 🚀 **Phase 7: Enterprise Scale (Q3 2025+)**
+- **Goal:** Production-grade features for large deployments
+- **Key Initiatives:**
+    - Multi-tenancy with namespace isolation
+    - RBAC with MinIO policy integration
+    - Advanced query caching and materialized views
+    - DiskANN for billion-scale indices
+    - Distributed query coordination (sharding)
+    - Python/TypeScript/Go client SDKs
 
 ---
 

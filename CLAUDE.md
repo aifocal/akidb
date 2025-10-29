@@ -86,9 +86,20 @@ Next: Phase 4 M2 - OpenTelemetry Observability
 
 ---
 
-## 🎯 AkiDB - 分散式向量資料庫
+## 🎯 AkiDB - MinIO-Native 離線向量資料庫
 
-Rust 編寫的分散式向量資料庫，使用 S3-compatible storage backend，專為高效能相似度搜尋設計。
+**定位**: 專為**空隔網部署、資料主權、可稽核離線 RAG**設計的 MinIO-native 向量資料庫。
+
+**目標市場**:
+- 🏛️ 政府與公部門 (Protected B/C, 資料不出境)
+- 🏦 受監管行業 (金融、醫療、法律)
+- 🏭 私有基礎設施 (工廠、船舶、多站點部署)
+
+**差異化**:
+- ✅ 空隔網就緒 (零雲端依賴)
+- ✅ 合規優先 (Object Lock, Versioning, Audit trails)
+- ✅ 成本優化 (MinIO 冷儲存 $0.01-0.02/GB, 90%+ 成本削減)
+- ✅ 可攜性 (`.akipkg` 封裝用於跨站點遷移)
 
 ### 當前功能 (Phase 3 完成)
 - ✅ S3-native storage backend (create_collection, write_segment, manifest operations)
@@ -108,11 +119,25 @@ Rust 編寫的分散式向量資料庫，使用 S3-compatible storage backend，
 - ✅ Structured logging (tracing-subscriber)
 - ✅ Security hardening (6 bugs fixed)
 
-### 下一步 (Phase 4 M2)
-1. ⏳ OpenTelemetry distributed tracing
-2. ⏳ Jaeger exporter integration
-3. ⏳ Query profiling tools
-4. ⏳ Production deployment automation
+### 下一步 (Phase 5: MinIO-Native Features)
+**優先級 1 - 合規與安全**:
+1. ⏳ SSE-KMS 加密整合 (KES/HashiCorp Vault)
+2. ⏳ Object Lock (WORM) 支援不可變索引段
+3. ⏳ Versioning API (snapshot/revert)
+4. ⏳ 稽核追蹤 (hash chains 存至 MinIO audit buckets)
+
+**優先級 2 - 儲存優化**:
+5. ⏳ Hot/Warm/Cold 分層快取 (NVMe → RocksDB → MinIO)
+6. ⏳ Multipart uploads for large segments
+7. ⏳ Range GET pre-fetching
+8. ⏳ Segment merging (減少 S3 API 呼叫)
+
+**優先級 3 - 事件與自動化**:
+9. ⏳ MinIO Bucket Notification → NATS → 索引重建
+10. ⏳ ILM policies for automatic tier transitions
+11. ⏳ `.akipkg` packaging with signatures
+
+**參考文檔**: `docs/minio-integration.md`
 
 ---
 
