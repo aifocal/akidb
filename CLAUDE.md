@@ -119,25 +119,51 @@ Next: Phase 4 M2 - OpenTelemetry Observability
 - ✅ Structured logging (tracing-subscriber)
 - ✅ Security hardening (6 bugs fixed)
 
-### 下一步 (Phase 5: MinIO-Native Features)
-**優先級 1 - 合規與安全**:
-1. ⏳ SSE-KMS 加密整合 (KES/HashiCorp Vault)
-2. ⏳ Object Lock (WORM) 支援不可變索引段
-3. ⏳ Versioning API (snapshot/revert)
-4. ⏳ 稽核追蹤 (hash chains 存至 MinIO audit buckets)
+### 架構重新設計 (Pluggable Acceleration) ⚡
+**核心原則**: 不綁定 MLX 或 ARM，做成可插拔加速系統
 
-**優先級 2 - 儲存優化**:
-5. ⏳ Hot/Warm/Cold 分層快取 (NVMe → RocksDB → MinIO)
-6. ⏳ Multipart uploads for large segments
-7. ⏳ Range GET pre-fetching
-8. ⏳ Segment merging (減少 S3 API 呼叫)
+**三層架構**:
+- **Layer 1: Core I/O & Storage** (跨平台) - WAL, MinIO, Segments
+- **Layer 2: Index & Cache** (跨平台) - HNSW, Hot/Warm/Cold cache
+- **Layer 3: Acceleration** (可插拔) - CPU-SIMD / MLX / CUDA / Future
 
-**優先級 3 - 事件與自動化**:
-9. ⏳ MinIO Bucket Notification → NATS → 索引重建
-10. ⏳ ILM policies for automatic tier transitions
-11. ⏳ `.akipkg` packaging with signatures
+**關鍵特性**:
+- ✅ `VectorAccelerator` trait (統一介面)
+- ✅ Runtime detection + automatic fallback to CPU
+- ✅ QoS classification (latency-critical vs throughput)
+- ✅ Circuit breaker + health monitoring
+- ✅ CPU SIMD fallback 永遠可用
 
-**參考文檔**: `docs/minio-integration.md`
+**參考文檔**: `docs/pluggable-acceleration.md`
+
+### 下一步 (Phase 5: Architecture Refactor + MinIO-Native)
+
+**優先級 1 - 可插拔加速基礎** (新架構):
+1. ⏳ 定義 `VectorAccelerator` trait + capability system
+2. ⏳ 實現 `AcceleratorRegistry` with runtime detection
+3. ⏳ `CpuSimdAccelerator` baseline (SSE/AVX/NEON)
+4. ⏳ Configuration system (TOML + env vars)
+5. ⏳ QoS classifier + orchestrator
+
+**優先級 2 - MinIO 合規與安全**:
+6. ⏳ SSE-KMS 加密整合 (KES/HashiCorp Vault)
+7. ⏳ Object Lock (WORM) 支援不可變索引段
+8. ⏳ Versioning API (snapshot/revert)
+9. ⏳ 稽核追蹤 (hash chains 存至 MinIO audit buckets)
+
+**優先級 3 - 儲存與事件**:
+10. ⏳ Hot/Warm/Cold 分層快取完善
+11. ⏳ MinIO Bucket Notification → NATS
+12. ⏳ `.akipkg` packaging with signatures
+
+**未來加速器 (Phase 6+)**:
+- `MlxAccelerator` (Apple Silicon, feature-gated)
+- `CudaAccelerator` (NVIDIA GPU)
+- `VulkanAccelerator` (cross-platform GPU)
+
+**參考文檔**:
+- `docs/pluggable-acceleration.md` (新架構)
+- `docs/minio-integration.md` (MinIO 整合)
 
 ---
 
