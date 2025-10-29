@@ -1,9 +1,14 @@
 
-# AutomatosX
-.automatosx/memory/
-.automatosx/logs/
-automatosx/tmp/  # v5.2: Temporary files
-automatosx.config.json  # Optional: remove to track config
+# AutomatosX - Do not push to GitHub
+.automatosx/
+automatosx/
+automatosx.*
+.claude/
+
+# Local development docs - Do not push
+CLAUDE.md
+agents.md
+gemini.md
 
 # Build artifacts
 target/
