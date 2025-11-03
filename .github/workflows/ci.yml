@@ -35,3 +35,79 @@ jobs:
 
       - name: Run formatter, lint, tests, and benchmarks
         run: ./scripts/dev-test.sh
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=akidb \
+            -e MINIO_ROOT_PASSWORD=akidbsecret \
+            minio/minio:latest \
+            server /data --console-address ":9001"
+
+      - name: Wait for MinIO to be ready
+        run: |
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live 2>/dev/null; then
+              echo "MinIO is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/30: MinIO not ready yet, waiting..."
+            sleep 2
+          done
+          echo "MinIO failed to become ready"
+          docker logs minio
+          exit 1
+
+      - name: Configure MinIO
+        run: |
+          # Install MinIO client
+          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+
+          # Configure MinIO client
+          mc alias set local http://localhost:9000 akidb akidbsecret
+
+          # Create bucket
+          mc mb local/akidb || true
+
+          # Verify bucket
+          mc ls local/
+
+          echo "MinIO configured successfully"
+
+      - name: Run integration tests
+        env:
+          AKIDB_S3_ENDPOINT: http://localhost:9000
+          AKIDB_S3_BUCKET: akidb
+          AKIDB_S3_REGION: us-east-1
+          AKIDB_S3_ACCESS_KEY: akidb
+          AKIDB_S3_SECRET_KEY: akidbsecret
+        run: |
+          echo "Running integration tests with MinIO..."
+          cargo test --workspace --all-targets --all-features -- --include-ignored
+
+      - name: Stop MinIO
+        if: always()
+        run: docker stop minio && docker rm minio
