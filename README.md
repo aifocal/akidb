@@ -306,10 +306,14 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
 - ✅ Comprehensive observability documentation
 - ✅ Graceful shutdown and configuration management
 
-**Next Up** (Phase 6 - Offline RAG):
-- 🔜 Offline batch ingest (CSV/JSONL/Parquet)
-- 🔜 .akipkg package format for air-gap deployments
-- 🔜 MinIO Site Replication integration
+**Phase 6 In Progress** (Offline RAG - 50% Complete):
+- ✅ akidb-ingest CLI tool (M1-M4)
+- ✅ CSV/JSONL/Parquet parsers with streaming
+- ✅ Batch pipeline with progress tracking
+- ✅ akidb-pkg CLI tool (M5-M7)
+- ✅ .akipkg package format specification
+- 🔄 Full WAL integration and segment building
+- 🔄 MinIO Site Replication integration
 
 ### ✅ **Phase 3: Core Implementation (Complete)**
 - **Goal:** Complete storage, WAL, and index implementation
@@ -344,14 +348,14 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
     - ✅ ILM policies for automatic tier transitions
     - ✅ `.akipkg` packaging with signatures
 
-### 🌐 **Phase 6: Offline RAG & Air-Gap Features (Q2 2025)**
+### 🔄 **Phase 6: Offline RAG & Air-Gap Features (In Progress - 50% Complete)**
 - **Goal:** Complete offline operation capabilities
-- **Key Initiatives:**
-    - **Offline Ingest:** CSV/JSONL/Parquet batch import with zero internet
-    - **Multi-Site Sync:** MinIO Site Replication integration for DR
-    - **Embedding Portability:** Package custom models in `.akipkg`
-    - **Air-Gap Tooling:** Offline installation scripts, dependency bundling
-    - **Multi-Language Support:** EN/FR/ZH/ES/JA document processing
+- **Key Milestones:**
+    - M1-M4: ✅ Offline Ingest Tool (CSV/JSONL/Parquet batch import)
+    - M5-M7: ✅ Package Format (.akipkg for air-gap deployments)
+    - M8-M10: 🔄 MinIO Site Replication integration (in progress)
+    - M11-M12: Air-Gap Tooling (offline installation, dependency bundling)
+    - M13-M14: Multi-Language Support (EN/FR/ZH/ES/JA document processing)
 
 ### 🚀 **Phase 7: Enterprise Scale (Q3 2025+)**
 - **Goal:** Production-grade features for large deployments

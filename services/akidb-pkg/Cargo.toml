@@ -1,0 +1,45 @@
+[package]
+name = "akidb-pkg"
+version = "0.4.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "akidb-pkg"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+akidb-core = { path = "../../crates/akidb-core" }
+akidb-storage = { path = "../../crates/akidb-storage" }
+akidb-index = { path = "../../crates/akidb-index" }
+
+# CLI
+clap = { workspace = true }
+indicatif = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Archive & compression
+tar = { workspace = true }
+zstd = { workspace = true }
+
+# Cryptography
+ring = { workspace = true }
+sha2 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

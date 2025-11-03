@@ -1,0 +1,40 @@
+[package]
+name = "akidb-ingest"
+version = "0.4.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "akidb-ingest"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+akidb-core = { path = "../../crates/akidb-core" }
+akidb-storage = { path = "../../crates/akidb-storage" }
+akidb-index = { path = "../../crates/akidb-index" }
+
+# CLI
+clap = { workspace = true }
+indicatif = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Data parsing
+csv = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"
