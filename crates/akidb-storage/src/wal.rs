@@ -278,14 +278,6 @@ impl S3WalBackend {
         Ok(())
     }
 
-    /// Get next LSN for a stream
-    fn next_lsn(&self, stream: WalStreamId) -> LogSequence {
-        let mut counters = self.lsn_counters.write();
-        let lsn = counters.entry(stream).or_insert(LogSequence::new(0));
-        let next = lsn.next();
-        *lsn = next;
-        next
-    }
 }
 
 #[async_trait]
