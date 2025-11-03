@@ -11,6 +11,15 @@ pub mod simple_engine;
 // Phase 3 M4: Production Monitoring
 pub mod profiler;
 
+// Phase 7 M7: Query Result Caching
+pub mod cache;
+
+// Phase 7 M8: Materialized Views
+pub mod materialized_view;
+
+// Phase 7 M9: Cache Invalidation
+pub mod invalidation;
+
 pub use basic_planner::BasicQueryPlanner;
 pub use batch_engine::BatchExecutionEngine;
 pub use context::{
@@ -24,3 +33,11 @@ pub use plan::{PhysicalPlan, PlanNode, PlanNodeId};
 pub use planner::QueryPlanner;
 pub use profiler::{ProfileStage, QueryProfile};
 pub use simple_engine::SimpleExecutionEngine;
+pub use cache::{
+    CacheConfig, CacheStats, CachedQueryResult, CachedSearchResult, QueryCache, QueryCacheKey,
+};
+pub use materialized_view::{
+    AggregationType, MaterializedResult, MaterializedView, MaterializedViewManager,
+    MaterializedViewType, RefreshStrategy, ViewDefinition, ViewError, ViewStats, ViewStatus,
+};
+pub use invalidation::{InvalidationConfig, InvalidationStats, InvalidationTracker};

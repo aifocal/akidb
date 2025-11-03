@@ -8,6 +8,7 @@ akidb-core = { path = "../akidb-core" }
 akidb-index = { path = "../akidb-index" }
 akidb-storage = { path = "../akidb-storage" }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 moka = { workspace = true }
 roaring = { workspace = true }
 serde = { workspace = true }
