@@ -294,7 +294,21 @@ impl WalAppender for S3WalBackend {
         // Check if properly initialized
         self.check_initialized();
 
-        let lsn = self.next_lsn(stream);
+        // CRITICAL SECTION: Must hold buffers lock during LSN allocation to prevent
+        // out-of-order writes. Without this, concurrent appends could result in:
+        //   Thread A gets LSN=1, Thread B gets LSN=2
+        //   Thread B adds LSN=2 to buffer, Thread A adds LSN=1
+        //   Result: [LSN=2, LSN=1] - WRONG ORDER!
+        let mut buffers = self.buffers.write();
+
+        // Get next LSN while holding buffers lock to ensure atomicity
+        let lsn = {
+            let mut counters = self.lsn_counters.write();
+            let current_lsn = counters.entry(stream).or_insert(LogSequence::new(0));
+            let next = current_lsn.next();
+            *current_lsn = next;
+            next
+        };
 
         let entry = WalEntry {
             lsn,
@@ -302,11 +316,8 @@ impl WalAppender for S3WalBackend {
             record,
         };
 
-        // Add to in-memory buffer
-        {
-            let mut buffers = self.buffers.write();
-            buffers.entry(stream).or_default().push(entry);
-        }
+        // Add to buffer (still holding buffers lock)
+        buffers.entry(stream).or_default().push(entry);
 
         debug!(
             "Appended WAL record with LSN {} to stream {}",
