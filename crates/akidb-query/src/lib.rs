@@ -20,6 +20,9 @@ pub mod materialized_view;
 // Phase 7 M9: Cache Invalidation
 pub mod invalidation;
 
+// Phase 7 M13-M15: Distributed Query Coordination
+pub mod distributed;
+
 pub use basic_planner::BasicQueryPlanner;
 pub use batch_engine::BatchExecutionEngine;
 pub use context::{
@@ -41,3 +44,8 @@ pub use materialized_view::{
     MaterializedViewType, RefreshStrategy, ViewDefinition, ViewError, ViewStats, ViewStatus,
 };
 pub use invalidation::{InvalidationConfig, InvalidationStats, InvalidationTracker};
+pub use distributed::{
+    CoordinatorConfig, CoordinatorStats, DistributedError, DistributedQueryRequest,
+    DistributedQueryResponse, DistributedSearchResult, QueryCoordinator, ShardId, ShardInfo,
+    ShardStatus, ShardingStrategy, VectorRange,
+};
