@@ -399,7 +399,9 @@ mod tests {
 
         // All checks should pass regardless of usage
         tracker.update_storage(tenant_id.clone(), u64::MAX / 2);
-        assert!(tracker.check_storage_quota(&tenant_id, u64::MAX / 2).is_ok());
+        assert!(tracker
+            .check_storage_quota(&tenant_id, u64::MAX / 2)
+            .is_ok());
 
         tracker.update_collections(tenant_id.clone(), u32::MAX / 2);
         assert!(tracker.check_collection_quota(&tenant_id).is_ok());

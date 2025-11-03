@@ -256,10 +256,9 @@ impl TenantDescriptor {
     /// Suspend tenant
     pub fn suspend(&mut self, reason: &str) {
         self.status = TenantStatus::Suspended;
-        self.metadata.custom.insert(
-            "suspension_reason".to_string(),
-            serde_json::json!(reason),
-        );
+        self.metadata
+            .custom
+            .insert("suspension_reason".to_string(), serde_json::json!(reason));
         self.updated_at = Utc::now();
     }
 

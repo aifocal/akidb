@@ -64,9 +64,7 @@ fn bench_instant_distance_build(c: &mut Criterion) {
                 bencher.iter(|| {
                     let points: Vec<VectorPoint> = vectors
                         .iter()
-                        .map(|v| VectorPoint {
-                            vector: v.clone(),
-                        })
+                        .map(|v| VectorPoint { vector: v.clone() })
                         .collect();
 
                     let values: Vec<usize> = (0..vectors.len()).collect();
@@ -129,9 +127,7 @@ fn bench_instant_distance_search(c: &mut Criterion) {
 
         let points: Vec<VectorPoint> = vectors
             .iter()
-            .map(|v| VectorPoint {
-                vector: v.clone(),
-            })
+            .map(|v| VectorPoint { vector: v.clone() })
             .collect();
 
         let values: Vec<usize> = (0..vectors.len()).collect();

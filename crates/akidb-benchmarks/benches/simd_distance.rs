@@ -8,12 +8,12 @@
 //! 2. Measure real-world speedup across different vector dimensions
 //! 3. Identify memory-bound scenarios where SIMD gains diminish
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use akidb_index::simd::{
-    compute_distance_simd, compute_l2_simd, compute_cosine_simd, compute_dot_simd,
-    compute_l2_scalar, compute_cosine_scalar, compute_dot_scalar,
-};
 use akidb_core::DistanceMetric;
+use akidb_index::simd::{
+    compute_cosine_scalar, compute_cosine_simd, compute_distance_simd, compute_dot_scalar,
+    compute_dot_simd, compute_l2_scalar, compute_l2_simd,
+};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 /// Benchmark L2 distance across different vector dimensions
 fn bench_l2_different_dims(c: &mut Criterion) {
@@ -167,11 +167,7 @@ fn bench_public_api(c: &mut Criterion) {
 
     group.bench_function("distance_api_l2", |bencher| {
         bencher.iter(|| {
-            compute_distance_simd(
-                black_box(DistanceMetric::L2),
-                black_box(&a),
-                black_box(&b),
-            )
+            compute_distance_simd(black_box(DistanceMetric::L2), black_box(&a), black_box(&b))
         });
     });
 
@@ -187,11 +183,7 @@ fn bench_public_api(c: &mut Criterion) {
 
     group.bench_function("distance_api_dot", |bencher| {
         bencher.iter(|| {
-            compute_distance_simd(
-                black_box(DistanceMetric::Dot),
-                black_box(&a),
-                black_box(&b),
-            )
+            compute_distance_simd(black_box(DistanceMetric::Dot), black_box(&a), black_box(&b))
         });
     });
 

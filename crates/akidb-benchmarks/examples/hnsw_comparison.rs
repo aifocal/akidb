@@ -2,17 +2,17 @@
 //!
 //! Usage: cargo run --example hnsw_comparison --release
 
-use std::time::Instant;
 use rand::Rng;
+use std::time::Instant;
 
 // instant-distance types
-use instant_distance::{Builder, Search, Point};
+use instant_distance::{Builder, Point, Search};
 
 // hnsw_rs types
 use hnsw_rs::prelude::*;
 
 const DIM: usize = 128;
-const NUM_VECTORS: usize = 100_000;  // 100K for quick iteration
+const NUM_VECTORS: usize = 100_000; // 100K for quick iteration
 const NUM_QUERIES: usize = 100;
 const K: usize = 10;
 const EF_CONSTRUCTION: usize = 400;
@@ -44,7 +44,10 @@ impl Point for VectorPoint {
     }
 }
 
-fn test_instant_distance(vectors: &[Vec<f32>], queries: &[Vec<f32>]) -> (std::time::Duration, std::time::Duration) {
+fn test_instant_distance(
+    vectors: &[Vec<f32>],
+    queries: &[Vec<f32>],
+) -> (std::time::Duration, std::time::Duration) {
     println!("\n=== Testing instant-distance ===");
 
     // Build index
@@ -70,7 +73,9 @@ fn test_instant_distance(vectors: &[Vec<f32>], queries: &[Vec<f32>]) -> (std::ti
     print!("Running {} searches... ", NUM_QUERIES);
     let start = Instant::now();
     for query in queries {
-        let query_point = VectorPoint { vector: query.clone() };
+        let query_point = VectorPoint {
+            vector: query.clone(),
+        };
         let mut search = Search::default();
         let _results: Vec<_> = hnsw.search(&query_point, &mut search).take(K).collect();
     }
@@ -84,7 +89,10 @@ fn test_instant_distance(vectors: &[Vec<f32>], queries: &[Vec<f32>]) -> (std::ti
     (build_time, avg_search_time)
 }
 
-fn test_hnsw_rs(vectors: &[Vec<f32>], queries: &[Vec<f32>]) -> (std::time::Duration, std::time::Duration) {
+fn test_hnsw_rs(
+    vectors: &[Vec<f32>],
+    queries: &[Vec<f32>],
+) -> (std::time::Duration, std::time::Duration) {
     println!("\n=== Testing hnsw_rs ===");
 
     // Build index
@@ -95,7 +103,7 @@ fn test_hnsw_rs(vectors: &[Vec<f32>], queries: &[Vec<f32>]) -> (std::time::Durat
     let hnsw: Hnsw<f32, DistL2> = Hnsw::new(
         M,
         NUM_VECTORS,
-        16,  // max_layer
+        16, // max_layer
         EF_CONSTRUCTION,
         DistL2,
     );
@@ -160,7 +168,10 @@ fn main() {
     if build_speedup > 1.0 {
         println!("  → hnsw_rs is {:.2}x FASTER at building", build_speedup);
     } else {
-        println!("  → instant-distance is {:.2}x faster at building", 1.0 / build_speedup);
+        println!(
+            "  → instant-distance is {:.2}x faster at building",
+            1.0 / build_speedup
+        );
     }
 
     println!("\nSearch Time (avg per query):");
@@ -171,7 +182,10 @@ fn main() {
     if search_speedup > 1.0 {
         println!("  → hnsw_rs is {:.2}x FASTER at searching", search_speedup);
     } else {
-        println!("  → instant-distance is {:.2}x faster at searching", 1.0 / search_speedup);
+        println!(
+            "  → instant-distance is {:.2}x faster at searching",
+            1.0 / search_speedup
+        );
     }
 
     // Decision
@@ -179,18 +193,30 @@ fn main() {
     if search_speedup > 1.5 {
         println!("🚀 RECOMMEND: Create full benchmark with 1M vectors");
         println!("   Potential for >50% performance improvement");
-        println!("   hnsw_rs shows {:.1}% faster search", (search_speedup - 1.0) * 100.0);
+        println!(
+            "   hnsw_rs shows {:.1}% faster search",
+            (search_speedup - 1.0) * 100.0
+        );
     } else if search_speedup > 1.2 {
-        println!("✅ CONSIDER: Moderate improvement ({:.1}%)", (search_speedup - 1.0) * 100.0);
+        println!(
+            "✅ CONSIDER: Moderate improvement ({:.1}%)",
+            (search_speedup - 1.0) * 100.0
+        );
         println!("   Worth switching if combined with other benefits:");
         println!("   - Thread-safe concurrent search (+600% throughput)");
         println!("   - Better algorithm implementation");
     } else if search_speedup > 1.0 {
-        println!("⚠️ MARGINAL: Small improvement ({:.1}%)", (search_speedup - 1.0) * 100.0);
+        println!(
+            "⚠️ MARGINAL: Small improvement ({:.1}%)",
+            (search_speedup - 1.0) * 100.0
+        );
         println!("   Consider other optimization strategies");
     } else {
         println!("❌ SKIP: No advantage");
-        println!("   instant-distance is {:.1}% faster", (1.0 / search_speedup - 1.0) * 100.0);
+        println!(
+            "   instant-distance is {:.1}% faster",
+            (1.0 / search_speedup - 1.0) * 100.0
+        );
         println!("   Explore other optimization strategies");
     }
 

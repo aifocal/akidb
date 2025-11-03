@@ -23,12 +23,11 @@ pub use config::{
 };
 pub use error::{Error, Result};
 pub use manifest::{CollectionManifest, ManifestEntry, ManifestSnapshot};
+pub use quota::{QuotaTracker, QuotaUtilization};
 pub use segment::{SegmentDescriptor, SegmentState};
 pub use tenant::{
-    TenantDescriptor, TenantError, TenantId, TenantMetadata, TenantQuota, TenantStatus,
-    TenantUsage,
+    TenantDescriptor, TenantError, TenantId, TenantMetadata, TenantQuota, TenantStatus, TenantUsage,
 };
-pub use quota::{QuotaTracker, QuotaUtilization};
 pub use user::{
     Permission, Role, RoleId, RoleMetadata, User, UserError, UserId, UserMetadata, UserStatus,
 };
