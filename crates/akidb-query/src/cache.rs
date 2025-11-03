@@ -86,13 +86,22 @@ impl QueryCache {
 
     /// Invalidate all cache entries for a collection
     pub async fn invalidate_collection(&self, collection: &str, tenant_id: &str) {
-        // For moka, we need to iterate and remove matching entries
-        // In production, use a more efficient pattern like key prefixes
-        let prefix = format!("qc:");
-        // Note: moka doesn't support prefix-based invalidation directly
-        // This is a limitation - in production, use Redis SCAN for this
-        // For now, we'll just invalidate the entire cache
-        self.memory_cache.invalidate_all();
+        // moka doesn't support prefix-based invalidation, so we need to iterate
+        // This is acceptable for L1 cache with bounded size (10k entries by default)
+        // For L2 Redis cache, use SCAN with pattern matching
+
+        // Iterate over all entries and invalidate matching ones
+        for (key, _) in self.memory_cache.iter() {
+            // Parse key to check if it matches this collection/tenant
+            // Key format: "qc:{hash}" where hash includes tenant_id and collection
+            // We need to invalidate conservatively since we can't decode the hash
+            // Solution: Track keys by collection/tenant in a separate map for O(1) lookup
+            // For now, invalidate all as a safe default until we implement key tracking
+            self.memory_cache.invalidate(&key).await;
+        }
+
+        // TODO: Implement key tracking map: HashMap<(TenantId, Collection), HashSet<CacheKey>>
+        // This would allow O(1) lookup and targeted invalidation without iteration
     }
 
     /// Get cache statistics
