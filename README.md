@@ -316,12 +316,15 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
 - ✅ Offline bundle creation and dependency vendoring (M11-M12)
 - ✅ Multi-language support with CJK tokenization (M13-M14)
 
-**Phase 7 In Progress** (Enterprise Scale - 15% Complete):
+**Phase 7 In Progress** (Enterprise Scale - 40% Complete):
 - ✅ Phase 7 planning and specification (docs/phase7-enterprise-scale.md, phase7-milestones.md)
 - ✅ M1: Tenant management COMPLETE (data structures, storage, REST API)
-- 🔄 M2-M3: Namespace isolation and quotas (next priority)
-- ⏳ M4-M6: RBAC with MinIO policy integration
-- ⏳ M7-M18: Caching, DiskANN, distributed queries, client SDKs
+- ✅ M2: Namespace isolation COMPLETE (tenant middleware, storage wrapper)
+- ✅ M3: Quota tracking COMPLETE (resource tracking, enforcement middleware)
+- ✅ M4: User and Role structures COMPLETE (RBAC foundations, 28 permissions)
+- ✅ M5-M6: RBAC middleware COMPLETE (authentication, authorization, permission checks)
+- 🔄 M7-M9: Query result caching (next priority)
+- ⏳ M10-M18: DiskANN, distributed queries, client SDKs
 
 ### ✅ **Phase 3: Core Implementation (Complete)**
 - **Goal:** Complete storage, WAL, and index implementation
@@ -365,13 +368,15 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
     - M11-M12: ✅ Air-Gap Tooling (offline installation, dependency bundling)
     - M13-M14: ✅ Multi-Language Support (EN/FR/ZH/ES/JA with CJK tokenization)
 
-### 🔄 **Phase 7: Enterprise Scale (In Progress - 15% Complete)**
+### 🔄 **Phase 7: Enterprise Scale (In Progress - 40% Complete)**
 - **Goal:** Production-grade features for large deployments
 - **Key Milestones:**
     - M1: ✅ Tenant Management (data structures, S3 storage, REST API with 10 tests)
-    - M2-M3: 🔄 Namespace isolation and resource quotas (next priority)
-    - M4-M6: ⏳ RBAC with MinIO policy integration
-    - M7-M9: ⏳ Advanced query caching and materialized views
+    - M2: ✅ Namespace Isolation (tenant middleware, TenantStorageBackend wrapper with 11 tests)
+    - M3: ✅ Quota Tracking (resource enforcement, rate limiting middleware with 20 tests)
+    - M4: ✅ User and Role Structures (28 permissions, pre-defined roles with 15 tests)
+    - M5-M6: ✅ RBAC Middleware (authentication, authorization, permission checks with 8 tests)
+    - M7-M9: 🔄 Advanced query caching and materialized views (next priority)
     - M10-M12: ⏳ DiskANN for billion-scale indices
     - M13-M15: ⏳ Distributed query coordination (sharding)
     - M16-M18: ⏳ Python/TypeScript/Go client SDKs
