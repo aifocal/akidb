@@ -25,10 +25,10 @@ pub use segment_format::{
     ChecksumType, CompressionType, SegmentData, SegmentReader, SegmentWriter,
 };
 pub use snapshot::{SnapshotCoordinator, SnapshotReader};
+pub use tenant_backend::TenantStorageBackend;
+pub use tenant_store::{S3TenantStore, TenantStore};
 pub use wal::{
     LogSequence, RecoveryStats, ReplayStats, S3WalBackend, WalAppender, WalEntry, WalRecord,
     WalRecovery, WalReplayer, WalStreamId,
 };
 pub use wal_append_only::{AppendOnlyWalBackend, SegmentMetadata, WalManifest};
-pub use tenant_store::{S3TenantStore, TenantStore};
-pub use tenant_backend::TenantStorageBackend;

@@ -250,17 +250,11 @@ impl InvertedIndex {
         self.exists.insert(doc_id);
 
         for key in &unique_keys {
-            let bitmap = self
-                .terms
-                .entry(key.clone())
-                .or_default();
+            let bitmap = self.terms.entry(key.clone()).or_default();
             bitmap.insert(doc_id);
 
             if let ValueKey::Number(num) = key {
-                let numeric = self
-                    .numeric_terms
-                    .entry(*num)
-                    .or_default();
+                let numeric = self.numeric_terms.entry(*num).or_default();
                 numeric.insert(doc_id);
             }
         }
@@ -313,12 +307,8 @@ impl InvertedIndex {
             return self.exists.clone();
         }
 
-        let lower_bound = lower
-            .as_ref()
-            .map_or(Bound::Unbounded, Bound::Included);
-        let upper_bound = upper
-            .as_ref()
-            .map_or(Bound::Unbounded, Bound::Included);
+        let lower_bound = lower.as_ref().map_or(Bound::Unbounded, Bound::Included);
+        let upper_bound = upper.as_ref().map_or(Bound::Unbounded, Bound::Included);
 
         let mut bitmap = RoaringBitmap::new();
         for (_key, ids) in self.numeric_terms.range((lower_bound, upper_bound)) {

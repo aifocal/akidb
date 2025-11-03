@@ -356,7 +356,9 @@ mod tests {
             "products".to_string(),
             MaterializedViewType::TopK,
             ViewDefinition::top_k(vec![1.0, 2.0, 3.0], 10),
-            RefreshStrategy::Scheduled { interval_seconds: 300 },
+            RefreshStrategy::Scheduled {
+                interval_seconds: 300,
+            },
         );
 
         assert_eq!(view.name, "top_products");
@@ -406,7 +408,10 @@ mod tests {
             score: None,
         }];
 
-        manager.update_results(&view_id, results, 100).await.unwrap();
+        manager
+            .update_results(&view_id, results, 100)
+            .await
+            .unwrap();
 
         let updated = manager.get_view(&view_id).await.unwrap();
         assert_eq!(updated.status, ViewStatus::Ready);

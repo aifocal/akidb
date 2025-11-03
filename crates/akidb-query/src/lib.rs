@@ -32,23 +32,20 @@ pub use context::{
     BatchQueryRequest, BatchQueryResponse, QueryContext, QueryRequest, QueryResponse,
     SearchNeighbor, SingleQuery, SingleQueryResult,
 };
-pub use engine::ExecutionEngine;
-pub use filter_cache::FilterCache;
-pub use filter_parser::{FilterParser, FilterTree};
-pub use plan::{PhysicalPlan, PlanNode, PlanNodeId};
-pub use planner::QueryPlanner;
-pub use profiler::{ProfileStage, QueryProfile};
-pub use simple_engine::SimpleExecutionEngine;
-pub use cache::{
-    CacheConfig, CacheStats, CachedQueryResult, CachedSearchResult, QueryCache, QueryCacheKey,
-};
-pub use materialized_view::{
-    AggregationType, MaterializedResult, MaterializedView, MaterializedViewManager,
-    MaterializedViewType, RefreshStrategy, ViewDefinition, ViewError, ViewStats, ViewStatus,
-};
-pub use invalidation::{InvalidationConfig, InvalidationStats, InvalidationTracker};
 pub use distributed::{
     CoordinatorConfig, CoordinatorStats, DistributedError, DistributedQueryRequest,
     DistributedQueryResponse, DistributedSearchResult, QueryCoordinator, ShardId, ShardInfo,
     ShardStatus, ShardingStrategy, VectorRange,
 };
+pub use engine::ExecutionEngine;
+pub use filter_cache::FilterCache;
+pub use filter_parser::{FilterParser, FilterTree};
+pub use invalidation::{InvalidationConfig, InvalidationStats, InvalidationTracker};
+pub use materialized_view::{
+    AggregationType, MaterializedResult, MaterializedView, MaterializedViewManager,
+    MaterializedViewType, RefreshStrategy, ViewDefinition, ViewError, ViewStats, ViewStatus,
+};
+pub use plan::{PhysicalPlan, PlanNode, PlanNodeId};
+pub use planner::QueryPlanner;
+pub use profiler::{ProfileStage, QueryProfile};
+pub use simple_engine::SimpleExecutionEngine;

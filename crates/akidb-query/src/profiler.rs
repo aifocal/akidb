@@ -151,7 +151,11 @@ mod tests {
             Duration::from_millis(100),
             json!({"vectors": 1000}),
         );
-        profile.record_stage("serialize", Duration::from_millis(3), json!({"results": 10}));
+        profile.record_stage(
+            "serialize",
+            Duration::from_millis(3),
+            json!({"results": 10}),
+        );
 
         assert_eq!(profile.stages.len(), 3);
         assert_eq!(profile.stages[0].name, "parse");

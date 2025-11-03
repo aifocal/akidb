@@ -89,16 +89,21 @@ impl StorageBackend for TenantStorageBackend {
         // Add tenant prefix to manifest path
         let key = self.with_tenant_prefix(&format!("collections/{}/manifest.json", collection));
         let bytes = self.inner.get_object(&key).await?;
-        let manifest: CollectionManifest = serde_json::from_slice(&bytes)
-            .map_err(|e| akidb_core::Error::Serialization(format!("Failed to parse manifest: {}", e)))?;
+        let manifest: CollectionManifest = serde_json::from_slice(&bytes).map_err(|e| {
+            akidb_core::Error::Serialization(format!("Failed to parse manifest: {}", e))
+        })?;
         Ok(manifest)
     }
 
     async fn persist_manifest(&self, manifest: &CollectionManifest) -> Result<()> {
         // Add tenant prefix to manifest path
-        let key = self.with_tenant_prefix(&format!("collections/{}/manifest.json", &manifest.collection_name));
-        let bytes = serde_json::to_vec_pretty(manifest)
-            .map_err(|e| akidb_core::Error::Serialization(format!("Failed to serialize manifest: {}", e)))?;
+        let key = self.with_tenant_prefix(&format!(
+            "collections/{}/manifest.json",
+            &manifest.collection_name
+        ));
+        let bytes = serde_json::to_vec_pretty(manifest).map_err(|e| {
+            akidb_core::Error::Serialization(format!("Failed to serialize manifest: {}", e))
+        })?;
         self.inner.put_object(&key, Bytes::from(bytes)).await
     }
 
@@ -130,10 +135,7 @@ impl StorageBackend for TenantStorageBackend {
         let tenant_prefix = format!("tenants/{}/", self.tenant_id);
         let stripped_keys = keys
             .into_iter()
-            .filter_map(|key| {
-                key.strip_prefix(&tenant_prefix)
-                    .map(|s| s.to_string())
-            })
+            .filter_map(|key| key.strip_prefix(&tenant_prefix).map(|s| s.to_string()))
             .collect();
 
         Ok(stripped_keys)
@@ -173,11 +175,7 @@ impl StorageBackend for TenantStorageBackend {
         self.inner.put_object(&key, Bytes::from(buffer)).await
     }
 
-    async fn load_segment(
-        &self,
-        collection: &str,
-        segment_id: Uuid,
-    ) -> Result<SegmentData> {
+    async fn load_segment(&self, collection: &str, segment_id: Uuid) -> Result<SegmentData> {
         // Add tenant prefix to segment path
         let key = self.with_tenant_prefix(&format!(
             "collections/{}/segments/{}.seg",
@@ -204,8 +202,10 @@ mod tests {
         let tenant2 = TenantStorageBackend::new(inner.clone(), "tenant_2".to_string());
 
         // Create collections for both tenants
-        let desc1 = CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
-        let desc2 = CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
+        let desc1 =
+            CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
+        let desc2 =
+            CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
 
         tenant1.create_collection(&desc1).await.unwrap();
         tenant2.create_collection(&desc2).await.unwrap();
@@ -222,7 +222,10 @@ mod tests {
         let tenant2 = TenantStorageBackend::new(inner.clone(), "tenant_b".to_string());
 
         // Write object for tenant1
-        tenant1.put_object("test/file.txt", Bytes::from("tenant1 data")).await.unwrap();
+        tenant1
+            .put_object("test/file.txt", Bytes::from("tenant1 data"))
+            .await
+            .unwrap();
 
         // Tenant2 should not see tenant1's object
         assert!(tenant2.get_object("test/file.txt").await.is_err());
@@ -238,8 +241,14 @@ mod tests {
         let tenant = TenantStorageBackend::new(inner.clone(), "tenant_test".to_string());
 
         // Write some objects
-        tenant.put_object("data/file1.txt", Bytes::from("data1")).await.unwrap();
-        tenant.put_object("data/file2.txt", Bytes::from("data2")).await.unwrap();
+        tenant
+            .put_object("data/file1.txt", Bytes::from("data1"))
+            .await
+            .unwrap();
+        tenant
+            .put_object("data/file2.txt", Bytes::from("data2"))
+            .await
+            .unwrap();
 
         // List objects should return paths without tenant prefix
         let keys = tenant.list_objects("data/").await.unwrap();
