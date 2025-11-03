@@ -85,7 +85,7 @@ impl QueryCache {
     }
 
     /// Invalidate all cache entries for a collection
-    pub async fn invalidate_collection(&self, collection: &str, tenant_id: &str) {
+    pub async fn invalidate_collection(&self, _collection: &str, _tenant_id: &str) {
         // moka doesn't support prefix-based invalidation, so we need to iterate
         // This is acceptable for L1 cache with bounded size (10k entries by default)
         // For L2 Redis cache, use SCAN with pattern matching
