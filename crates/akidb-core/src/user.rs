@@ -38,7 +38,12 @@ pub struct User {
 
 impl User {
     /// Create a new user
-    pub fn new(username: String, email: String, password_hash: String, tenant_id: TenantId) -> Self {
+    pub fn new(
+        username: String,
+        email: String,
+        password_hash: String,
+        tenant_id: TenantId,
+    ) -> Self {
         let now = Utc::now();
         Self {
             user_id: uuid::Uuid::new_v4().to_string(),
@@ -90,7 +95,9 @@ impl User {
     /// Validate user data
     pub fn validate(&self) -> Result<(), UserError> {
         if self.username.is_empty() {
-            return Err(UserError::InvalidUsername("Username cannot be empty".to_string()));
+            return Err(UserError::InvalidUsername(
+                "Username cannot be empty".to_string(),
+            ));
         }
 
         if self.email.is_empty() || !self.email.contains('@') {
@@ -98,7 +105,9 @@ impl User {
         }
 
         if self.password_hash.is_empty() {
-            return Err(UserError::InvalidPassword("Password hash cannot be empty".to_string()));
+            return Err(UserError::InvalidPassword(
+                "Password hash cannot be empty".to_string(),
+            ));
         }
 
         Ok(())
@@ -210,7 +219,9 @@ impl Role {
     /// Validate role data
     pub fn validate(&self) -> Result<(), UserError> {
         if self.name.is_empty() {
-            return Err(UserError::InvalidRole("Role name cannot be empty".to_string()));
+            return Err(UserError::InvalidRole(
+                "Role name cannot be empty".to_string(),
+            ));
         }
 
         Ok(())
@@ -582,20 +593,15 @@ mod tests {
         role.add_permission(Permission::CollectionRead);
         role.add_permission(Permission::VectorSearch);
 
-        assert!(role.has_all_permissions(&[
-            Permission::CollectionRead,
-            Permission::VectorSearch
-        ]));
+        assert!(role.has_all_permissions(&[Permission::CollectionRead, Permission::VectorSearch]));
 
-        assert!(!role.has_all_permissions(&[
-            Permission::CollectionRead,
-            Permission::CollectionDelete
-        ]));
+        assert!(
+            !role.has_all_permissions(&[Permission::CollectionRead, Permission::CollectionDelete])
+        );
 
-        assert!(role.has_any_permission(&[
-            Permission::CollectionRead,
-            Permission::CollectionDelete
-        ]));
+        assert!(
+            role.has_any_permission(&[Permission::CollectionRead, Permission::CollectionDelete])
+        );
     }
 
     #[test]
@@ -641,7 +647,10 @@ mod tests {
 
     #[test]
     fn test_permission_display() {
-        assert_eq!(Permission::CollectionCreate.to_string(), "collection:create");
+        assert_eq!(
+            Permission::CollectionCreate.to_string(),
+            "collection:create"
+        );
         assert_eq!(Permission::VectorSearch.to_string(), "vector:search");
         assert_eq!(Permission::Admin.to_string(), "admin");
     }

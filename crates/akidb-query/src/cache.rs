@@ -1,8 +1,8 @@
+use moka::future::Cache as MokaCache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
-use moka::future::Cache as MokaCache;
 
 /// Query result cache with multi-level support
 ///

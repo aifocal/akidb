@@ -258,8 +258,11 @@ impl VectorStore {
 
         // Insert vectors into HNSW index
         // For hnsw_rs, we need to use parallel_insert for better performance
-        let data_with_ids: Vec<(&Vec<f32>, usize)> =
-            vectors_2d.iter().enumerate().map(|(id, vec)| (vec, id)).collect();
+        let data_with_ids: Vec<(&Vec<f32>, usize)> = vectors_2d
+            .iter()
+            .enumerate()
+            .map(|(id, vec)| (vec, id))
+            .collect();
 
         // Use hnsw_rs's parallel insertion for better performance
         hnsw.parallel_insert(&data_with_ids);

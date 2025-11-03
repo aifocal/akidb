@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BinaryHeap, HashSet};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashSet};
 
 /// DiskANN index using Vamana graph structure
 ///
@@ -233,7 +233,9 @@ impl DiskANNIndex {
 
         // Sort by distance
         results.sort_by(|a, b| {
-            a.distance.partial_cmp(&b.distance).unwrap_or(Ordering::Equal)
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
         });
 
         Ok(results)
@@ -352,10 +354,10 @@ pub struct DiskANNConfig {
 impl Default for DiskANNConfig {
     fn default() -> Self {
         Self {
-            max_degree: 64,          // Typical: 32-128
-            build_list_size: 100,    // Typical: 75-200
-            search_list_size: 100,   // Typical: same as build_list_size
-            alpha: 1.2,              // Typical: 1.0-1.5
+            max_degree: 64,        // Typical: 32-128
+            build_list_size: 100,  // Typical: 75-200
+            search_list_size: 100, // Typical: same as build_list_size
+            alpha: 1.2,            // Typical: 1.0-1.5
         }
     }
 }
@@ -370,7 +372,10 @@ struct SearchCandidate {
 // Reverse ordering for min-heap
 impl Ord for SearchCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.distance.partial_cmp(&self.distance).unwrap_or(Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -425,11 +430,7 @@ mod tests {
 
     fn generate_test_vectors(n: usize, dim: usize) -> Vec<Vec<f32>> {
         (0..n)
-            .map(|i| {
-                (0..dim)
-                    .map(|j| ((i * 10 + j) as f32).sin())
-                    .collect()
-            })
+            .map(|i| (0..dim).map(|j| ((i * 10 + j) as f32).sin()).collect())
             .collect()
     }
 
