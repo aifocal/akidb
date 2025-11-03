@@ -149,7 +149,10 @@ impl QueryCoordinator {
                 // Hash-based sharding
                 let hash = Self::hash_string(vector_id);
                 let shard_idx = (hash % shard_count as u64) as usize;
-                let shard_id = shard_idx as ShardId;
+
+                // Map index to actual shard ID (shards may have arbitrary IDs)
+                let shard_ids: Vec<ShardId> = shards.keys().copied().collect();
+                let shard_id = shard_ids[shard_idx];
                 Ok(shard_id)
             }
             ShardingStrategy::Range { ranges } => {

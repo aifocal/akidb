@@ -71,22 +71,36 @@ impl RbacEnforcementState {
 
     /// Add a user (for testing/demo)
     pub fn add_user(&self, user: User) {
-        self.users.write().unwrap().insert(user.user_id.clone(), user);
+        self.users
+            .write()
+            .expect("RBAC user lock poisoned")
+            .insert(user.user_id.clone(), user);
     }
 
     /// Add a role (for testing/demo)
     pub fn add_role(&self, role: Role) {
-        self.roles.write().unwrap().insert(role.role_id.clone(), role);
+        self.roles
+            .write()
+            .expect("RBAC role lock poisoned")
+            .insert(role.role_id.clone(), role);
     }
 
     /// Get user by ID
     pub fn get_user(&self, user_id: &str) -> Option<User> {
-        self.users.read().unwrap().get(user_id).cloned()
+        self.users
+            .read()
+            .expect("RBAC user lock poisoned")
+            .get(user_id)
+            .cloned()
     }
 
     /// Get role by ID
     pub fn get_role(&self, role_id: &str) -> Option<Role> {
-        self.roles.read().unwrap().get(role_id).cloned()
+        self.roles
+            .read()
+            .expect("RBAC role lock poisoned")
+            .get(role_id)
+            .cloned()
     }
 
     /// Get user permissions by resolving all roles

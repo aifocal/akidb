@@ -261,11 +261,10 @@ impl QuotaTracker {
             0
         };
 
-        let vectors_pct = if quota.max_vectors_per_collection > 0 {
-            (usage.total_vectors as f64 / quota.max_vectors_per_collection as f64 * 100.0) as u32
-        } else {
-            0
-        };
+        // Note: vectors_percent is not calculated because total_vectors is across all collections
+        // while max_vectors_per_collection is a per-collection limit. These cannot be meaningfully
+        // compared. To get accurate vector utilization, check each collection individually.
+        let vectors_pct = 0;
 
         QuotaUtilization {
             storage_percent: storage_pct,
