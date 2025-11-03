@@ -316,6 +316,13 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
 - ✅ Offline bundle creation and dependency vendoring (M11-M12)
 - ✅ Multi-language support with CJK tokenization (M13-M14)
 
+**Phase 7 In Progress** (Enterprise Scale - 5% Complete):
+- ✅ Phase 7 planning and specification (docs/phase7-enterprise-scale.md)
+- ✅ M1: Tenant data structures (TenantDescriptor, TenantQuota, TenantUsage)
+- 🔄 M1-M3: Multi-tenancy with namespace isolation
+- 🔄 M4-M6: RBAC with MinIO policy integration
+- ⏳ M7-M18: Caching, DiskANN, distributed queries, client SDKs
+
 ### ✅ **Phase 3: Core Implementation (Complete)**
 - **Goal:** Complete storage, WAL, and index implementation
 - **Key Milestones:**
@@ -358,15 +365,15 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
     - M11-M12: ✅ Air-Gap Tooling (offline installation, dependency bundling)
     - M13-M14: ✅ Multi-Language Support (EN/FR/ZH/ES/JA with CJK tokenization)
 
-### 🚀 **Phase 7: Enterprise Scale (Q3 2025+)**
+### 🔄 **Phase 7: Enterprise Scale (In Progress - 5% Complete)**
 - **Goal:** Production-grade features for large deployments
-- **Key Initiatives:**
-    - Multi-tenancy with namespace isolation
-    - RBAC with MinIO policy integration
-    - Advanced query caching and materialized views
-    - DiskANN for billion-scale indices
-    - Distributed query coordination (sharding)
-    - Python/TypeScript/Go client SDKs
+- **Key Milestones:**
+    - M1-M3: 🔄 Multi-tenancy (M1 foundation complete: tenant data structures)
+    - M4-M6: ⏳ RBAC with MinIO policy integration
+    - M7-M9: ⏳ Advanced query caching and materialized views
+    - M10-M12: ⏳ DiskANN for billion-scale indices
+    - M13-M15: ⏳ Distributed query coordination (sharding)
+    - M16-M18: ⏳ Python/TypeScript/Go client SDKs
 
 ---
 

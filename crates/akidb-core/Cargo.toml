@@ -18,3 +18,7 @@ uuid = { workspace = true }
 # Phase 3 M4: Production Monitoring
 prometheus = { workspace = true }
 once_cell = { workspace = true }
+
+# Phase 7 M1: Multi-Tenancy
+rand = { workspace = true }
+sha2 = { workspace = true }
