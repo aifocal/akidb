@@ -5,6 +5,7 @@ pub mod middleware;
 pub mod query_cache;
 pub mod rest;
 pub mod state;
+pub mod telemetry;
 pub mod validation;
 
 pub use grpc::build_grpc_server;
