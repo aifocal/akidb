@@ -208,7 +208,11 @@ mod tests {
         tracker
             .record_cache_vectors(
                 "cache_1".to_string(),
-                vec!["vec_1".to_string(), "vec_2".to_string(), "vec_3".to_string()],
+                vec![
+                    "vec_1".to_string(),
+                    "vec_2".to_string(),
+                    "vec_3".to_string(),
+                ],
             )
             .await;
 
@@ -353,9 +357,7 @@ mod tests {
             .await;
 
         // Changing untracked vector should not affect any cache
-        let affected = tracker
-            .get_affected_caches(&["vec_999".to_string()])
-            .await;
+        let affected = tracker.get_affected_caches(&["vec_999".to_string()]).await;
         assert_eq!(affected.len(), 0);
     }
 }

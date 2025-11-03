@@ -25,6 +25,9 @@ pub mod distributed;
 
 pub use basic_planner::BasicQueryPlanner;
 pub use batch_engine::BatchExecutionEngine;
+pub use cache::{
+    CacheConfig, CacheStats, CachedQueryResult, CachedSearchResult, QueryCache, QueryCacheKey,
+};
 pub use context::{
     BatchQueryRequest, BatchQueryResponse, QueryContext, QueryRequest, QueryResponse,
     SearchNeighbor, SingleQuery, SingleQueryResult,

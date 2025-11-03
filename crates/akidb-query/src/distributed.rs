@@ -90,7 +90,9 @@ impl QueryCoordinator {
 
         // Aggregate results: merge-sort by distance and take top-k
         results.sort_by(|a, b| {
-            a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal)
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let top_k = results.into_iter().take(request.k).collect();
@@ -188,7 +190,10 @@ impl QueryCoordinator {
 
         CoordinatorStats {
             total_shards: shards.len(),
-            active_shards: shards.values().filter(|s| s.status == ShardStatus::Active).count(),
+            active_shards: shards
+                .values()
+                .filter(|s| s.status == ShardStatus::Active)
+                .count(),
         }
     }
 }

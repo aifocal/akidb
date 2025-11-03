@@ -159,12 +159,7 @@ pub struct QueryCacheKey {
 }
 
 impl QueryCacheKey {
-    pub fn new(
-        tenant_id: String,
-        collection: String,
-        query_vector: Vec<f32>,
-        k: usize,
-    ) -> Self {
+    pub fn new(tenant_id: String, collection: String, query_vector: Vec<f32>, k: usize) -> Self {
         Self {
             tenant_id,
             collection,
@@ -329,7 +324,8 @@ mod tests {
             "test_collection".to_string(),
             vec![1.0, 2.0, 3.0],
             10,
-        ).with_filters(vec![
+        )
+        .with_filters(vec![
             ("category".to_string(), "tech".to_string()),
             ("author".to_string(), "alice".to_string()),
         ]);
@@ -339,7 +335,8 @@ mod tests {
             "test_collection".to_string(),
             vec![1.0, 2.0, 3.0],
             10,
-        ).with_filters(vec![
+        )
+        .with_filters(vec![
             ("author".to_string(), "alice".to_string()),
             ("category".to_string(), "tech".to_string()), // Same filters, different order
         ]);
