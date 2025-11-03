@@ -28,6 +28,10 @@ echo "   OS: ${OS}"
 echo ""
 
 # Clean previous builds
+if [[ -z "${BUNDLE_DIR}" ]]; then
+    echo "❌ Error: BUNDLE_DIR is not set"
+    exit 1
+fi
 rm -rf "${BUNDLE_DIR}"
 mkdir -p "${BUNDLE_DIR}"/{bin,deps,configs,scripts,docs}
 

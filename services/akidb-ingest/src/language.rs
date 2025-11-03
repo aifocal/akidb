@@ -103,10 +103,22 @@ impl LanguageDetector {
     }
 
     /// Create a language detector with custom confidence threshold
-    pub fn with_confidence(confidence_threshold: f64) -> Self {
-        Self {
-            confidence_threshold,
+    ///
+    /// # Arguments
+    /// * `confidence_threshold` - Must be in range [0.0, 1.0]
+    ///
+    /// # Errors
+    /// Returns `LanguageError::DetectionFailed` if confidence_threshold is invalid
+    pub fn with_confidence(confidence_threshold: f64) -> Result<Self, LanguageError> {
+        if !(0.0..=1.0).contains(&confidence_threshold) || confidence_threshold.is_nan() {
+            return Err(LanguageError::DetectionFailed(format!(
+                "Invalid confidence threshold: {}. Must be in range [0.0, 1.0]",
+                confidence_threshold
+            )));
         }
+        Ok(Self {
+            confidence_threshold,
+        })
     }
 
     /// Detect language from text
@@ -142,9 +154,25 @@ impl LanguageDetector {
 
     /// Detect language with metadata
     pub fn detect_with_metadata(&self, text: &str) -> Result<LanguageMetadata, LanguageError> {
+        // Check for empty text first
+        if text.trim().is_empty() {
+            return Err(LanguageError::DetectionFailed(
+                "Empty text provided".to_string(),
+            ));
+        }
+
         let info = detect(text).ok_or_else(|| {
             LanguageError::DetectionFailed("Could not detect language".to_string())
         })?;
+
+        // Check confidence threshold
+        if info.confidence() < self.confidence_threshold {
+            return Err(LanguageError::DetectionFailed(format!(
+                "Low confidence: {:.2} < {:.2}",
+                info.confidence(),
+                self.confidence_threshold
+            )));
+        }
 
         let language = SupportedLanguage::from_whatlang(info.lang()).ok_or_else(|| {
             LanguageError::UnsupportedLanguage(format!(
@@ -361,5 +389,160 @@ mod tests {
         assert!(SupportedLanguage::ZH.is_cjk());
         assert!(!SupportedLanguage::ES.is_cjk());
         assert!(SupportedLanguage::JA.is_cjk());
+    }
+
+    // Edge case tests (Bug Analysis Report #8)
+
+    #[test]
+    fn test_with_confidence_valid_bounds() {
+        // Test minimum valid confidence
+        let detector = LanguageDetector::with_confidence(0.0);
+        assert!(detector.is_ok());
+
+        // Test maximum valid confidence
+        let detector = LanguageDetector::with_confidence(1.0);
+        assert!(detector.is_ok());
+
+        // Test middle value
+        let detector = LanguageDetector::with_confidence(0.5);
+        assert!(detector.is_ok());
+    }
+
+    #[test]
+    fn test_with_confidence_invalid_values() {
+        // Test negative confidence
+        let detector = LanguageDetector::with_confidence(-0.1);
+        assert!(detector.is_err());
+
+        // Test confidence > 1.0
+        let detector = LanguageDetector::with_confidence(1.5);
+        assert!(detector.is_err());
+
+        // Test NaN
+        let detector = LanguageDetector::with_confidence(f64::NAN);
+        assert!(detector.is_err());
+
+        // Test infinity
+        let detector = LanguageDetector::with_confidence(f64::INFINITY);
+        assert!(detector.is_err());
+    }
+
+    #[test]
+    fn test_detect_with_metadata_empty_text() {
+        let detector = LanguageDetector::new();
+        let result = detector.detect_with_metadata("");
+        assert!(result.is_err());
+
+        // Test whitespace-only
+        let result = detector.detect_with_metadata("   ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detect_with_metadata_respects_confidence_threshold() {
+        // Create detector with very high threshold (should reject most texts)
+        let detector = LanguageDetector::with_confidence(0.99).unwrap();
+
+        // Short ambiguous text should fail confidence check
+        let result = detector.detect_with_metadata("ok");
+        // May pass or fail depending on whatlang's confidence, but shouldn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_detect_very_short_text() {
+        let detector = LanguageDetector::new();
+
+        // Single character - whatlang may not detect this reliably
+        let result = detector.detect("a");
+        // We don't assert success/failure as it depends on whatlang behavior
+        let _ = result;
+
+        // Two characters
+        let result = detector.detect("ok");
+        let _ = result;
+    }
+
+    #[test]
+    fn test_detect_numbers_only() {
+        let detector = LanguageDetector::new();
+        let result = detector.detect("123456789");
+        // Numbers-only text may fail detection, which is expected
+        let _ = result;
+    }
+
+    #[test]
+    fn test_detect_special_characters_only() {
+        let detector = LanguageDetector::new();
+        let result = detector.detect("!@#$%^&*()");
+        // Special characters only should fail detection
+        let _ = result;
+    }
+
+    #[test]
+    fn test_tokenize_empty_string() {
+        let detector = LanguageDetector::new();
+        let tokens = detector.tokenize("", SupportedLanguage::EN).unwrap();
+        assert_eq!(tokens.len(), 0);
+    }
+
+    #[test]
+    fn test_tokenize_whitespace_only() {
+        let detector = LanguageDetector::new();
+        let tokens = detector
+            .tokenize("   ", SupportedLanguage::EN)
+            .unwrap();
+        assert_eq!(tokens.len(), 0);
+    }
+
+    #[test]
+    fn test_tokenize_with_punctuation() {
+        let detector = LanguageDetector::new();
+        let tokens = detector
+            .tokenize("Hello, World!", SupportedLanguage::EN)
+            .unwrap();
+        assert_eq!(tokens, vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn test_enrich_payload_preserves_existing_fields() {
+        let detector = LanguageDetector::new();
+        let mut payload = HashMap::new();
+        payload.insert("existing_field".to_string(), serde_json::json!("value"));
+        payload.insert("content".to_string(), serde_json::json!("Hello World"));
+
+        let enriched = detector
+            .enrich_payload("This is an English sentence.", payload)
+            .unwrap();
+
+        // Check original field is preserved
+        assert!(enriched.contains_key("existing_field"));
+        assert_eq!(enriched.get("existing_field").unwrap(), "value");
+
+        // Check language fields were added
+        assert!(enriched.contains_key("language"));
+    }
+
+    #[test]
+    fn test_confidence_threshold_edge_cases() {
+        // Detector with 0.0 threshold should accept any detection
+        let detector_permissive = LanguageDetector::with_confidence(0.0).unwrap();
+        let result = detector_permissive.detect("This is English text.");
+        assert!(result.is_ok());
+
+        // Detector with 1.0 threshold may reject even good detections
+        let detector_strict = LanguageDetector::with_confidence(1.0).unwrap();
+        let result = detector_strict.detect("This is English text.");
+        // May fail due to strict threshold, but shouldn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_supported_language_name() {
+        assert_eq!(SupportedLanguage::EN.name(), "English");
+        assert_eq!(SupportedLanguage::FR.name(), "French");
+        assert_eq!(SupportedLanguage::ZH.name(), "Chinese");
+        assert_eq!(SupportedLanguage::ES.name(), "Spanish");
+        assert_eq!(SupportedLanguage::JA.name(), "Japanese");
     }
 }

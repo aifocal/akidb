@@ -29,6 +29,10 @@ fi
 
 # Step 1: Clean previous vendor directory
 echo "🧹 Step 1: Cleaning previous vendor directory..."
+if [[ -z "${VENDOR_DIR}" ]]; then
+    echo "❌ Error: VENDOR_DIR is not set"
+    exit 1
+fi
 rm -rf "${VENDOR_DIR}"
 rm -f "${PROJECT_ROOT}/${VENDOR_TARBALL}"
 rm -f "${PROJECT_ROOT}/${VENDOR_TARBALL}.sha256"
