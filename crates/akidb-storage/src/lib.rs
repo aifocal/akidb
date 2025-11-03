@@ -9,6 +9,9 @@ pub mod snapshot;
 pub mod wal;
 pub mod wal_append_only;
 
+// Phase 7 M1: Multi-Tenancy
+pub mod tenant_store;
+
 pub use backend::{StorageBackend, StorageStatus};
 pub use error::Result;
 pub use memory::MemoryStorageBackend;
@@ -24,3 +27,4 @@ pub use wal::{
     WalRecovery, WalReplayer, WalStreamId,
 };
 pub use wal_append_only::{AppendOnlyWalBackend, SegmentMetadata, WalManifest};
+pub use tenant_store::{S3TenantStore, TenantStore};

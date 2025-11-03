@@ -316,11 +316,11 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
 - ✅ Offline bundle creation and dependency vendoring (M11-M12)
 - ✅ Multi-language support with CJK tokenization (M13-M14)
 
-**Phase 7 In Progress** (Enterprise Scale - 5% Complete):
-- ✅ Phase 7 planning and specification (docs/phase7-enterprise-scale.md)
-- ✅ M1: Tenant data structures (TenantDescriptor, TenantQuota, TenantUsage)
-- 🔄 M1-M3: Multi-tenancy with namespace isolation
-- 🔄 M4-M6: RBAC with MinIO policy integration
+**Phase 7 In Progress** (Enterprise Scale - 15% Complete):
+- ✅ Phase 7 planning and specification (docs/phase7-enterprise-scale.md, phase7-milestones.md)
+- ✅ M1: Tenant management COMPLETE (data structures, storage, REST API)
+- 🔄 M2-M3: Namespace isolation and quotas (next priority)
+- ⏳ M4-M6: RBAC with MinIO policy integration
 - ⏳ M7-M18: Caching, DiskANN, distributed queries, client SDKs
 
 ### ✅ **Phase 3: Core Implementation (Complete)**
@@ -365,10 +365,11 @@ AkiDB uses a **MinIO-first, stateless architecture** designed for air-gapped dep
     - M11-M12: ✅ Air-Gap Tooling (offline installation, dependency bundling)
     - M13-M14: ✅ Multi-Language Support (EN/FR/ZH/ES/JA with CJK tokenization)
 
-### 🔄 **Phase 7: Enterprise Scale (In Progress - 5% Complete)**
+### 🔄 **Phase 7: Enterprise Scale (In Progress - 15% Complete)**
 - **Goal:** Production-grade features for large deployments
 - **Key Milestones:**
-    - M1-M3: 🔄 Multi-tenancy (M1 foundation complete: tenant data structures)
+    - M1: ✅ Tenant Management (data structures, S3 storage, REST API with 10 tests)
+    - M2-M3: 🔄 Namespace isolation and resource quotas (next priority)
     - M4-M6: ⏳ RBAC with MinIO policy integration
     - M7-M9: ⏳ Advanced query caching and materialized views
     - M10-M12: ⏳ DiskANN for billion-scale indices
