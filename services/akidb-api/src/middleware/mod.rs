@@ -1,8 +1,23 @@
 pub mod auth;
 pub mod metrics;
+pub mod tenant;
+pub mod quota;
+pub mod rbac;
 
 pub use auth::{auth_middleware, AuthConfig};
 pub use metrics::track_metrics;
+pub use tenant::{
+    get_tenant_context, tenant_context_middleware, tenant_enforcement_middleware, TenantContext,
+    TENANT_CONTEXT_KEY,
+};
+pub use quota::{
+    check_collection_quota, check_storage_quota, check_vector_quota, inject_quota_state,
+    quota_enforcement_middleware, QuotaEnforcementState,
+};
+pub use rbac::{
+    get_user_context, inject_rbac_state, rbac_middleware, require_all_permissions,
+    require_any_permission, require_permission, RbacEnforcementState, UserContext,
+};
 
 use tower::layer::Layer;
 

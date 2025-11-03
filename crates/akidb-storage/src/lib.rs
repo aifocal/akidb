@@ -12,6 +12,9 @@ pub mod wal_append_only;
 // Phase 7 M1: Multi-Tenancy
 pub mod tenant_store;
 
+// Phase 7 M2: Namespace Isolation
+pub mod tenant_backend;
+
 pub use backend::{StorageBackend, StorageStatus};
 pub use error::Result;
 pub use memory::MemoryStorageBackend;
@@ -28,3 +31,4 @@ pub use wal::{
 };
 pub use wal_append_only::{AppendOnlyWalBackend, SegmentMetadata, WalManifest};
 pub use tenant_store::{S3TenantStore, TenantStore};
+pub use tenant_backend::TenantStorageBackend;

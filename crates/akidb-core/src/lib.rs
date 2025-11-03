@@ -10,6 +10,12 @@ pub mod metrics;
 // Phase 7 M1: Multi-Tenancy
 pub mod tenant;
 
+// Phase 7 M3: Quota Tracking
+pub mod quota;
+
+// Phase 7 M4: RBAC
+pub mod user;
+
 pub use collection::{CollectionDescriptor, DistanceMetric, PayloadField, PayloadSchema};
 pub use config::{
     AkidbConfig, ApiConfig, CircuitBreakerConfig, HnswIndexConfig, IndexConfig, NativeIndexConfig,
@@ -21,4 +27,8 @@ pub use segment::{SegmentDescriptor, SegmentState};
 pub use tenant::{
     TenantDescriptor, TenantError, TenantId, TenantMetadata, TenantQuota, TenantStatus,
     TenantUsage,
+};
+pub use quota::{QuotaTracker, QuotaUtilization};
+pub use user::{
+    Permission, Role, RoleId, RoleMetadata, User, UserError, UserId, UserMetadata, UserStatus,
 };
