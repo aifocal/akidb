@@ -157,20 +157,18 @@ impl StorageBackend for TenantStorageBackend {
 
         // Serialize segment data
         let segment_data = SegmentData {
+            dimension: descriptor.vector_dim as u32,
             vectors,
             metadata,
         };
 
         // Write to storage using the segment writer
-        let mut buffer = Vec::new();
-        let mut writer = crate::segment_format::SegmentWriter::new(
-            std::io::Cursor::new(&mut buffer),
+        let writer = crate::segment_format::SegmentWriter::new(
             crate::segment_format::CompressionType::Zstd,
             crate::segment_format::ChecksumType::Xxh3,
         );
 
-        writer.write_segment(&segment_data)
-            .map_err(|e| akidb_core::Error::Storage(format!("Failed to write segment: {}", e)))?;
+        let buffer = writer.write(&segment_data)?;
 
         self.inner.put_object(&key, Bytes::from(buffer)).await
     }
@@ -189,12 +187,7 @@ impl StorageBackend for TenantStorageBackend {
         let bytes = self.inner.get_object(&key).await?;
 
         // Deserialize segment data
-        let cursor = std::io::Cursor::new(bytes.as_ref());
-        let mut reader = crate::segment_format::SegmentReader::new(cursor)
-            .map_err(|e| akidb_core::Error::Storage(format!("Failed to create segment reader: {}", e)))?;
-
-        reader.read_segment()
-            .map_err(|e| akidb_core::Error::Storage(format!("Failed to read segment: {}", e)))
+        crate::segment_format::SegmentReader::read(&bytes)
     }
 }
 
