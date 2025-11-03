@@ -6,6 +6,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 mod parsers;
 mod pipeline;
+pub mod language;
 
 use parsers::{CsvParser, JsonlParser, ParquetParser, VectorParser};
 use pipeline::IngestPipeline;

@@ -36,5 +36,9 @@ thiserror = { workspace = true }
 rayon = { workspace = true }
 futures = { workspace = true }
 
+# Multi-language support
+whatlang = { workspace = true }
+unicode-segmentation = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.10"
