@@ -1,11 +1,9 @@
 # AkiDB
 
 [![Rust CI](https://github.com/aifocal/akidb/actions/workflows/ci.yml/badge.svg)](https://github.com/aifocal/akidb/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/aifocal/akidb)](https://github.com/aifocal/akidb/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Rust Version](https://img.shields.io/badge/rust-1.77%2B-orange.svg)](https://www.rust-lang.org)
-[![GitHub Stars](https://img.shields.io/github/stars/aifocal/akidb?style=social)](https://github.com/aifocal/akidb)
-[![GitHub Issues](https://img.shields.io/github/issues/aifocal/akidb)](https://github.com/aifocal/akidb/issues)
-[![GitHub Release](https://img.shields.io/github/v/release/aifocal/akidb?include_prereleases)](https://github.com/aifocal/akidb/releases)
 
 **AkiDB: ARM-native, S3-backed vector database for offline semantic retrieval and edge AI pipelines.**
 
