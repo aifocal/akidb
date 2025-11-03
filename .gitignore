@@ -4,6 +4,7 @@
 automatosx/
 automatosx.*
 .claude/
+.specify/
 
 # Local development docs - Do not push
 CLAUDE.md
