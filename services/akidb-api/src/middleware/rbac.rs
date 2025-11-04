@@ -325,10 +325,8 @@ mod tests {
         assert!(!user_context
             .has_all_permissions(&[Permission::CollectionRead, Permission::CollectionCreate]));
 
-        assert!(user_context.has_any_permission(&[
-            Permission::CollectionRead,
-            Permission::CollectionCreate
-        ]));
+        assert!(user_context
+            .has_any_permission(&[Permission::CollectionRead, Permission::CollectionCreate]));
 
         // Test admin permission
         user_context.permissions.push(Permission::Admin);

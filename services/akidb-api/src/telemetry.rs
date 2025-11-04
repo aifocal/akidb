@@ -153,8 +153,7 @@ pub fn init_telemetry(
 
 /// Initialize logging without OpenTelemetry (fallback)
 fn init_logging_only() {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)

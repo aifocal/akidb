@@ -265,8 +265,9 @@ async fn create_valid_collection(
     };
 
     let descriptor_key = format!("collections/{}/descriptor.json", name);
-    let descriptor_json = serde_json::to_vec(&descriptor)
-        .map_err(|e| akidb_core::Error::Validation(format!("Failed to serialize descriptor: {}", e)))?;
+    let descriptor_json = serde_json::to_vec(&descriptor).map_err(|e| {
+        akidb_core::Error::Validation(format!("Failed to serialize descriptor: {}", e))
+    })?;
     storage
         .as_ref()
         .put_object(&descriptor_key, descriptor_json.into())
@@ -287,8 +288,9 @@ async fn create_valid_collection(
     };
 
     let manifest_key = format!("collections/{}/manifest.json", name);
-    let manifest_json = serde_json::to_vec(&manifest)
-        .map_err(|e| akidb_core::Error::Validation(format!("Failed to serialize manifest: {}", e)))?;
+    let manifest_json = serde_json::to_vec(&manifest).map_err(|e| {
+        akidb_core::Error::Validation(format!("Failed to serialize manifest: {}", e))
+    })?;
     storage
         .as_ref()
         .put_object(&manifest_key, manifest_json.into())

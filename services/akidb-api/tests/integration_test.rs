@@ -97,10 +97,7 @@ async fn test_health_check_detailed() {
         components.get("storage").is_some(),
         "Should have storage component"
     );
-    assert!(
-        components.get("wal").is_some(),
-        "Should have wal component"
-    );
+    assert!(components.get("wal").is_some(), "Should have wal component");
     assert!(
         components.get("index").is_some(),
         "Should have index component"
