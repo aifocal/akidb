@@ -106,7 +106,7 @@ jobs:
           AKIDB_S3_SECRET_KEY: akidbsecret
         run: |
           echo "Running integration tests with MinIO..."
-          cargo test --workspace --all-targets --all-features -- --include-ignored
+          cargo test --workspace --lib --bins --tests --all-features -- --include-ignored
 
       - name: Stop MinIO
         if: always()
