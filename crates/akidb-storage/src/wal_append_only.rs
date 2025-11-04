@@ -165,7 +165,10 @@ impl AppendOnlyWalBackend {
                 Ok(manifest)
             }
             Err(Error::NotFound(_)) => {
-                debug!("No existing WAL manifest for stream {}, creating new", stream.0);
+                debug!(
+                    "No existing WAL manifest for stream {}, creating new",
+                    stream.0
+                );
                 Ok(WalManifest::default())
             }
             Err(e) => Err(e),
@@ -189,7 +192,11 @@ impl AppendOnlyWalBackend {
     }
 
     /// Load segment entries from storage
-    async fn load_segment(&self, stream: WalStreamId, segment_meta: &SegmentMetadata) -> Result<Vec<WalEntry>> {
+    async fn load_segment(
+        &self,
+        stream: WalStreamId,
+        segment_meta: &SegmentMetadata,
+    ) -> Result<Vec<WalEntry>> {
         match self.storage.get_object(&segment_meta.path).await {
             Ok(data) => {
                 let entries: Vec<WalEntry> = serde_json::from_slice(&data).map_err(|e| {
@@ -225,7 +232,9 @@ impl AppendOnlyWalBackend {
         let data = serde_json::to_vec(&segment.entries)
             .map_err(|e| Error::Storage(format!("Failed to serialize WAL segment: {}", e)))?;
 
-        self.storage.put_object(&segment.path, Bytes::from(data)).await?;
+        self.storage
+            .put_object(&segment.path, Bytes::from(data))
+            .await?;
 
         debug!(
             "Persisted WAL segment {} with {} entries",
@@ -266,7 +275,12 @@ impl AppendOnlyWalBackend {
 
             let manifest_clone = state.manifest.clone();
 
-            (sealed_segment_clone, sealed_meta, new_segment_id, manifest_clone)
+            (
+                sealed_segment_clone,
+                sealed_meta,
+                new_segment_id,
+                manifest_clone,
+            )
         }; // Lock is dropped here
 
         // Now perform async operations without holding the lock
@@ -333,9 +347,9 @@ impl WalAppender for AppendOnlyWalBackend {
         // Append to active segment
         let lsn = {
             let mut streams = self.streams.write();
-            let state = streams.get_mut(&stream).ok_or_else(|| {
-                Error::NotFound(format!("WAL stream {} not found", stream.0))
-            })?;
+            let state = streams
+                .get_mut(&stream)
+                .ok_or_else(|| Error::NotFound(format!("WAL stream {} not found", stream.0)))?;
 
             // Assign LSN
             let lsn = LogSequence::new(state.manifest.next_lsn);
@@ -368,7 +382,11 @@ impl WalAppender for AppendOnlyWalBackend {
             self.seal_and_rotate(stream).await?;
         }
 
-        debug!("Appended WAL record with LSN {} to stream {}", lsn.value(), stream.0);
+        debug!(
+            "Appended WAL record with LSN {} to stream {}",
+            lsn.value(),
+            stream.0
+        );
         Ok(lsn)
     }
 
@@ -382,9 +400,9 @@ impl WalAppender for AppendOnlyWalBackend {
         // Get active segment
         let (active_segment_clone, manifest_clone) = {
             let streams = self.streams.read();
-            let state = streams.get(&stream).ok_or_else(|| {
-                Error::NotFound(format!("WAL stream {} not found", stream.0))
-            })?;
+            let state = streams
+                .get(&stream)
+                .ok_or_else(|| Error::NotFound(format!("WAL stream {} not found", stream.0)))?;
 
             // Clone to avoid holding lock during I/O
             let active_clone = ActiveSegment {
@@ -704,17 +722,15 @@ mod tests {
     fn test_wal_manifest_serialization() {
         let manifest = WalManifest {
             version: 1,
-            segments: vec![
-                SegmentMetadata {
-                    id: 0,
-                    path: "segment0".to_string(),
-                    start_lsn: 0,
-                    end_lsn: 9999,
-                    entry_count: 10000,
-                    created_at: chrono::Utc::now(),
-                    sealed: true,
-                },
-            ],
+            segments: vec![SegmentMetadata {
+                id: 0,
+                path: "segment0".to_string(),
+                start_lsn: 0,
+                end_lsn: 9999,
+                entry_count: 10000,
+                created_at: chrono::Utc::now(),
+                sealed: true,
+            }],
             next_lsn: 10000,
         };
 
