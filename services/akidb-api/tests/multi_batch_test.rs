@@ -19,7 +19,7 @@ use akidb_index::NativeIndexProvider;
 use akidb_query::{
     BasicQueryPlanner, BatchExecutionEngine, ExecutionEngine, QueryPlanner, SimpleExecutionEngine,
 };
-use akidb_storage::{MetadataStore, MemoryMetadataStore, MemoryStorageBackend, S3WalBackend};
+use akidb_storage::{MemoryMetadataStore, MemoryStorageBackend, MetadataStore, S3WalBackend};
 use axum::extract::{Path, State as AxumState};
 use axum::Json;
 use serde_json::json;

@@ -1,8 +1,8 @@
 pub mod auth;
 pub mod metrics;
-pub mod tenant;
 pub mod quota;
 pub mod rbac;
+pub mod tenant;
 
 pub use auth::{auth_middleware, AuthConfig};
 pub use metrics::track_metrics;

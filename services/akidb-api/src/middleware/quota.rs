@@ -272,12 +272,16 @@ mod tests {
         tracker.set_quota(tenant_id.to_string(), TenantQuota::unlimited());
 
         // All checks should pass
-        assert!(check_storage_quota(&tracker, tenant_id, u64::MAX / 2)
-            .await
-            .is_ok());
+        assert!(
+            check_storage_quota(&tracker, tenant_id, u64::MAX / 2)
+                .await
+                .is_ok()
+        );
         assert!(check_collection_quota(&tracker, tenant_id).await.is_ok());
-        assert!(check_vector_quota(&tracker, tenant_id, u64::MAX / 2, u64::MAX / 4)
-            .await
-            .is_ok());
+        assert!(
+            check_vector_quota(&tracker, tenant_id, u64::MAX / 2, u64::MAX / 4)
+                .await
+                .is_ok()
+        );
     }
 }

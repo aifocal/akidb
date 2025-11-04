@@ -319,15 +319,11 @@ mod tests {
         assert!(user_context.has_permission(&Permission::CollectionRead));
         assert!(!user_context.has_permission(&Permission::CollectionCreate));
 
-        assert!(user_context.has_all_permissions(&[
-            Permission::CollectionRead,
-            Permission::VectorSearch
-        ]));
+        assert!(user_context
+            .has_all_permissions(&[Permission::CollectionRead, Permission::VectorSearch]));
 
-        assert!(!user_context.has_all_permissions(&[
-            Permission::CollectionRead,
-            Permission::CollectionCreate
-        ]));
+        assert!(!user_context
+            .has_all_permissions(&[Permission::CollectionRead, Permission::CollectionCreate]));
 
         assert!(user_context.has_any_permission(&[
             Permission::CollectionRead,
@@ -337,10 +333,8 @@ mod tests {
         // Test admin permission
         user_context.permissions.push(Permission::Admin);
         assert!(user_context.has_permission(&Permission::CollectionCreate));
-        assert!(user_context.has_all_permissions(&[
-            Permission::CollectionCreate,
-            Permission::CollectionDelete
-        ]));
+        assert!(user_context
+            .has_all_permissions(&[Permission::CollectionCreate, Permission::CollectionDelete]));
     }
 
     #[test]
