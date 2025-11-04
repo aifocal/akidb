@@ -99,7 +99,7 @@ impl StorageBackend for TenantStorageBackend {
         // Add tenant prefix to manifest path
         let key = self.with_tenant_prefix(&format!(
             "collections/{}/manifest.json",
-            &manifest.collection_name
+            &manifest.collection
         ));
         let bytes = serde_json::to_vec_pretty(manifest).map_err(|e| {
             akidb_core::Error::Serialization(format!("Failed to serialize manifest: {}", e))
@@ -150,7 +150,7 @@ impl StorageBackend for TenantStorageBackend {
         // Add tenant prefix to segment path
         let key = self.with_tenant_prefix(&format!(
             "collections/{}/segments/{}.seg",
-            descriptor.collection, descriptor.id
+            descriptor.collection, descriptor.segment_id
         ));
 
         // Write using underlying backend's implementation
@@ -167,7 +167,7 @@ impl StorageBackend for TenantStorageBackend {
         // Write to storage using the segment writer
         let writer = crate::segment_format::SegmentWriter::new(
             crate::segment_format::CompressionType::Zstd,
-            crate::segment_format::ChecksumType::Xxh3,
+            crate::segment_format::ChecksumType::XXH3,
         );
 
         let buffer = writer.write(&segment_data)?;

@@ -174,7 +174,6 @@ impl TenantStore for S3TenantStore {
         let list_result = self
             .object_store
             .list(Some(&prefix))
-            .await
             .map_err(|e| TenantError::StorageError(format!("Failed to list tenants: {}", e)))?;
 
         let mut tenants = Vec::new();
