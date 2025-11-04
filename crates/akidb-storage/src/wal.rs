@@ -659,12 +659,22 @@ mod integration_tests {
     fn create_test_storage() -> Option<Arc<S3StorageBackend>> {
         // This requires MinIO to be running on localhost:9000
         // Skip if not available
+        // Read credentials from environment variables (for CI compatibility)
+        let endpoint = std::env::var("AKIDB_S3_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:9000".to_string());
+        let access_key = std::env::var("AKIDB_S3_ACCESS_KEY")
+            .unwrap_or_else(|_| "minioadmin".to_string());
+        let secret_key = std::env::var("AKIDB_S3_SECRET_KEY")
+            .unwrap_or_else(|_| "minioadmin".to_string());
+        let bucket = std::env::var("AKIDB_S3_BUCKET")
+            .unwrap_or_else(|_| "akidb-test".to_string());
+
         let config = S3Config {
-            endpoint: "http://localhost:9000".to_string(),
+            endpoint,
             region: "us-east-1".to_string(),
-            access_key: "minioadmin".to_string(),
-            secret_key: "minioadmin".to_string(),
-            bucket: "akidb-test".to_string(),
+            access_key,
+            secret_key,
+            bucket,
             ..Default::default()
         };
 
