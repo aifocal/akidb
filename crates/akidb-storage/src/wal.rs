@@ -795,7 +795,11 @@ mod integration_tests {
         // Recover
         let stats = wal2.recover().await.unwrap();
         // Check that at least our 2 streams were recovered (may be more from other tests)
-        assert!(stats.streams_recovered >= 2, "Expected at least 2 streams recovered, got {}", stats.streams_recovered);
+        assert!(
+            stats.streams_recovered >= 2,
+            "Expected at least 2 streams recovered, got {}",
+            stats.streams_recovered
+        );
         assert_eq!(
             stats.last_lsn_per_stream.get(&stream1).map(|l| l.value()),
             Some(3),
