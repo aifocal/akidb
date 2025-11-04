@@ -26,9 +26,9 @@ Built in Rust, AkiDB is designed for high-performance, power-efficient deploymen
 
 - **[Getting Started](./docs/getting-started.md)**: Install and run AkiDB for the first time.
 - **[API Reference](./docs/api-reference.md)**: Detailed REST API documentation.
-- **[Architecture](./docs/architecture.md)**: A high-level overview of AkiDB\'s architecture.
+- **[Architecture](./docs/architecture.md)**: A high-level overview of AkiDB's architecture.
 - **[Multi-Tenancy](./docs/multi-tenancy.md)**: Learn about tenant isolation and quota management.
-- **[Security](./docs/security.md)**: Understand AkiDB\'s security features and best practices.
+- **[Security](./docs/security.md)**: Understand AkiDB's security features and best practices.
 - **[Deployment](./docs/deployment.md)**: A guide to deploying AkiDB in production.
 
 ## Quick Start
