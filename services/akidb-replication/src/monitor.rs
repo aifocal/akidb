@@ -41,7 +41,10 @@ pub async fn check_status(
         overall_health: "healthy".to_string(),
     };
 
-    info!("Replication status: bucket={}, lag={}s", bucket, status.primary_to_dr_lag_secs);
+    info!(
+        "Replication status: bucket={}, lag={}s",
+        bucket, status.primary_to_dr_lag_secs
+    );
 
     Ok(status)
 }
