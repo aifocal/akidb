@@ -13,7 +13,7 @@ echo "Running cargo clippy..."
 cargo clippy --all-targets --all-features --workspace -- -D warnings
 
 echo "Running cargo test..."
-cargo test --workspace --all-targets --all-features
+cargo test --workspace --lib --bins --tests --all-features
 
 echo "Running benchmark guard..."
 cargo test --workspace --benches --all-features
