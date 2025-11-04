@@ -328,8 +328,8 @@ pub mod api_key {
     }
 
     /// Verify an API key against a hash
-    pub fn verify(api_key: &str, hash: &str) -> bool {
-        hash(api_key) == hash
+    pub fn verify(api_key: &str, api_key_hash: &str) -> bool {
+        hash(api_key) == api_key_hash
     }
 }
 

@@ -2,7 +2,7 @@ use crate::{TenantError, TenantId, TenantQuota, TenantUsage};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::warn;
 
 /// Quota tracker for tenant resource usage
 #[derive(Clone)]
