@@ -432,7 +432,9 @@ async fn load_collection(
                 index_provider.add_batch(&index_handle, batch).await?;
 
                 // Index metadata and track key → doc_id mapping
-                for (idx, (key, payload)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                for (idx, (key, payload)) in
+                    batch_keys.iter().zip(batch_payloads.iter()).enumerate()
+                {
                     let doc_id = doc_id_start + idx as u32;
                     metadata_store.index_metadata(name, doc_id, payload).await?;
                     key_to_doc_id.insert(key.clone(), doc_id);

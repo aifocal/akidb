@@ -43,14 +43,14 @@ pub async fn run_server() -> Result<()> {
         let s3_config = S3Config {
             endpoint: std::env::var("AKIDB_S3_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:9000".to_string()),
-            region: std::env::var("AKIDB_S3_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string()),
-            access_key: std::env::var("AKIDB_S3_ACCESS_KEY")
-                .map_err(|_| Error::Internal("AKIDB_S3_ACCESS_KEY environment variable not set".to_string()))?,
-            secret_key: std::env::var("AKIDB_S3_SECRET_KEY")
-                .map_err(|_| Error::Internal("AKIDB_S3_SECRET_KEY environment variable not set".to_string()))?,
-            bucket: std::env::var("AKIDB_S3_BUCKET")
-                .unwrap_or_else(|_| "akidb".to_string()),
+            region: std::env::var("AKIDB_S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
+            access_key: std::env::var("AKIDB_S3_ACCESS_KEY").map_err(|_| {
+                Error::Internal("AKIDB_S3_ACCESS_KEY environment variable not set".to_string())
+            })?,
+            secret_key: std::env::var("AKIDB_S3_SECRET_KEY").map_err(|_| {
+                Error::Internal("AKIDB_S3_SECRET_KEY environment variable not set".to_string())
+            })?,
+            bucket: std::env::var("AKIDB_S3_BUCKET").unwrap_or_else(|_| "akidb".to_string()),
             ..Default::default()
         };
 
@@ -62,7 +62,7 @@ pub async fn run_server() -> Result<()> {
         // Create S3 storage backend
         Arc::new(
             S3StorageBackend::new(s3_config)
-                .map_err(|e| Error::Internal(format!("Failed to initialize S3 backend: {}", e)))?
+                .map_err(|e| Error::Internal(format!("Failed to initialize S3 backend: {}", e)))?,
         )
     };
 
@@ -101,10 +101,11 @@ pub async fn run_server() -> Result<()> {
     let app = rest::build_router(state);
 
     // Parse bind address (use environment variable or default)
-    let bind_address = std::env::var("AKIDB_BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
-    let addr: SocketAddr = bind_address
-        .parse()
-        .map_err(|e| Error::Validation(format!("Invalid bind address '{}': {}", bind_address, e)))?;
+    let bind_address =
+        std::env::var("AKIDB_BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let addr: SocketAddr = bind_address.parse().map_err(|e| {
+        Error::Validation(format!("Invalid bind address '{}': {}", bind_address, e))
+    })?;
 
     info!("Starting AkiDB API server on {}", addr);
 

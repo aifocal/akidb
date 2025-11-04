@@ -254,12 +254,8 @@ mod tests {
             quotas: None,
         };
 
-        let result = update_tenant(
-            State(store),
-            Path(tenant.tenant_id.clone()),
-            Json(request),
-        )
-        .await;
+        let result =
+            update_tenant(State(store), Path(tenant.tenant_id.clone()), Json(request)).await;
         assert!(result.is_ok());
 
         let response = result.unwrap();

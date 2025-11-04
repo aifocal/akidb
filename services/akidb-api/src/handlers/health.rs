@@ -89,11 +89,7 @@ pub async fn readiness_handler(State(state): State<AppState>) -> Response {
 
     // If storage is unhealthy, return 503 Service Unavailable
     if !storage_status {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Storage backend not ready",
-        )
-            .into_response();
+        return (StatusCode::SERVICE_UNAVAILABLE, "Storage backend not ready").into_response();
     }
 
     // All checks passed
@@ -206,10 +202,7 @@ mod tests {
             HealthStatus::Healthy,
             HealthStatus::Healthy,
         ];
-        assert_eq!(
-            determine_overall_status(&statuses),
-            HealthStatus::Healthy
-        );
+        assert_eq!(determine_overall_status(&statuses), HealthStatus::Healthy);
     }
 
     #[test]
@@ -219,10 +212,7 @@ mod tests {
             HealthStatus::Degraded,
             HealthStatus::Healthy,
         ];
-        assert_eq!(
-            determine_overall_status(&statuses),
-            HealthStatus::Degraded
-        );
+        assert_eq!(determine_overall_status(&statuses), HealthStatus::Degraded);
     }
 
     #[test]
@@ -232,10 +222,7 @@ mod tests {
             HealthStatus::Degraded,
             HealthStatus::Unhealthy,
         ];
-        assert_eq!(
-            determine_overall_status(&statuses),
-            HealthStatus::Unhealthy
-        );
+        assert_eq!(determine_overall_status(&statuses), HealthStatus::Unhealthy);
     }
 
     #[tokio::test]

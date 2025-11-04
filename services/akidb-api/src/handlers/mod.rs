@@ -24,8 +24,8 @@ pub use metrics::metrics_handler;
 pub use search::{
     batch_search_vectors, search_vectors, SearchRequest, SearchResponse, SearchResult,
 };
-pub use vectors::{insert_vectors, InsertVectorsRequest, InsertVectorsResponse, VectorInput};
 pub use tenants::{
     create_tenant, delete_tenant, get_tenant, list_tenants, update_tenant, CreateTenantRequest,
     CreateTenantResponse, ListTenantsQuery, ListTenantsResponse, UpdateTenantRequest,
 };
+pub use vectors::{insert_vectors, InsertVectorsRequest, InsertVectorsResponse, VectorInput};

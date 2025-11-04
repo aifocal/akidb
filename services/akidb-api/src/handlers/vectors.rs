@@ -182,16 +182,12 @@ pub async fn insert_vectors(
 
     // Sync WAL to storage to ensure durability before proceeding
     // CRITICAL: Without sync(), records stay in memory and are lost on crash
-    state
-        .wal
-        .sync(metadata.wal_stream_id)
-        .await
-        .map_err(|e| {
-            ApiError::Internal(akidb_core::Error::Storage(format!(
-                "WAL sync failed: {}",
-                e
-            )))
-        })?;
+    state.wal.sync(metadata.wal_stream_id).await.map_err(|e| {
+        ApiError::Internal(akidb_core::Error::Storage(format!(
+            "WAL sync failed: {}",
+            e
+        )))
+    })?;
 
     debug!(
         "WAL write complete and synced for {} vectors in collection '{}'",
@@ -294,16 +290,9 @@ pub async fn insert_vectors(
         );
 
         // Extract vectors and payloads directly from request
-        let new_vectors: Vec<Vec<f32>> = req
-            .vectors
-            .iter()
-            .map(|v| v.vector.clone())
-            .collect();
-        let new_payloads: Vec<serde_json::Value> = req
-            .vectors
-            .iter()
-            .map(|v| v.payload.clone())
-            .collect();
+        let new_vectors: Vec<Vec<f32>> = req.vectors.iter().map(|v| v.vector.clone()).collect();
+        let new_payloads: Vec<serde_json::Value> =
+            req.vectors.iter().map(|v| v.payload.clone()).collect();
 
         // Create metadata block from payloads
         let metadata = akidb_storage::MetadataBlock::from_json(new_payloads).map_err(|e| {
