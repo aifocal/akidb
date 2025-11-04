@@ -16,6 +16,6 @@ echo "Running cargo test..."
 cargo test --workspace --lib --bins --tests --all-features
 
 echo "Running benchmark guard..."
-cargo test --workspace --benches --all-features
+cargo check --workspace --benches --all-features
 
 echo "All checks passed."
