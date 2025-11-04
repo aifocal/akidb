@@ -80,7 +80,9 @@ impl TelemetryConfig {
 ///
 /// A guard that should be kept alive for the duration of the application.
 /// Dropping the guard will flush and shutdown the tracer.
-pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryGuard, Box<dyn std::error::Error>> {
+pub fn init_telemetry(
+    config: TelemetryConfig,
+) -> Result<TelemetryGuard, Box<dyn std::error::Error>> {
     if !config.enabled {
         tracing::info!("OpenTelemetry is disabled (AKIDB_TELEMETRY_ENABLED=false)");
         init_logging_only();
@@ -126,8 +128,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryGuard, Box<dyn
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
     // Create env filter for log levels
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Create fmt layer for console logging
     let fmt_layer = tracing_subscriber::fmt::layer()

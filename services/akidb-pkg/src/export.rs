@@ -13,7 +13,11 @@ pub async fn export_package(
     _s3_bucket: String,
     _s3_region: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Exporting collection '{}' to {}", collection, output.display());
+    info!(
+        "Exporting collection '{}' to {}",
+        collection,
+        output.display()
+    );
 
     // In a real implementation, this would:
     // 1. Connect to S3/MinIO

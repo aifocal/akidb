@@ -2,11 +2,16 @@ use crate::config::ReplicationConfig;
 use tracing::info;
 
 /// Configure MinIO site replication
-pub async fn configure_replication(config: ReplicationConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn configure_replication(
+    config: ReplicationConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Validate configuration
     config.validate()?;
 
-    info!("Configuring replication: {} → {}", config.primary_endpoint, config.dr_endpoint);
+    info!(
+        "Configuring replication: {} → {}",
+        config.primary_endpoint, config.dr_endpoint
+    );
 
     // In a real implementation, this would:
     // 1. Use MinIO Admin API to set up site replication

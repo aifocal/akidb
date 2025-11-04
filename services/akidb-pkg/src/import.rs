@@ -12,7 +12,11 @@ pub async fn import_package(
     _s3_bucket: String,
     _s3_region: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Importing package {} as collection {:?}", file.display(), collection);
+    info!(
+        "Importing package {} as collection {:?}",
+        file.display(),
+        collection
+    );
 
     // In a real implementation, this would:
     // 1. Verify checksums
