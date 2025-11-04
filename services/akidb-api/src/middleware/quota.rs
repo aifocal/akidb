@@ -148,7 +148,11 @@ pub async fn check_and_increment_vectors(
     collection_vectors: u64,
     additional_vectors: u64,
 ) -> Result<(), (StatusCode, String)> {
-    match tracker.check_and_increment_vectors(tenant_id.to_string(), collection_vectors, additional_vectors) {
+    match tracker.check_and_increment_vectors(
+        tenant_id.to_string(),
+        collection_vectors,
+        additional_vectors,
+    ) {
         Ok(_) => Ok(()),
         Err(TenantError::QuotaExceeded { quota_type }) => Err((
             StatusCode::FORBIDDEN,
@@ -304,9 +308,11 @@ mod tests {
         tracker.set_quota(tenant_id.to_string(), TenantQuota::unlimited());
 
         // All atomic operations should pass with unlimited quota
-        assert!(check_and_increment_storage(&tracker, tenant_id, u64::MAX / 2)
-            .await
-            .is_ok());
+        assert!(
+            check_and_increment_storage(&tracker, tenant_id, u64::MAX / 2)
+                .await
+                .is_ok()
+        );
         assert!(check_and_increment_collection(&tracker, tenant_id)
             .await
             .is_ok());
