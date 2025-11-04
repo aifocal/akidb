@@ -446,7 +446,7 @@ pub mod password {
 
     /// Verify a password against a hash
     pub fn verify(password: &str, password_hash: &str) -> bool {
-        Self::hash(password) == password_hash
+        hash(password) == password_hash
     }
 }
 
