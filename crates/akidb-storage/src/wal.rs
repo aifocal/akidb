@@ -662,12 +662,11 @@ mod integration_tests {
         // Read credentials from environment variables (for CI compatibility)
         let endpoint = std::env::var("AKIDB_S3_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:9000".to_string());
-        let access_key = std::env::var("AKIDB_S3_ACCESS_KEY")
-            .unwrap_or_else(|_| "minioadmin".to_string());
-        let secret_key = std::env::var("AKIDB_S3_SECRET_KEY")
-            .unwrap_or_else(|_| "minioadmin".to_string());
-        let bucket = std::env::var("AKIDB_S3_BUCKET")
-            .unwrap_or_else(|_| "akidb-test".to_string());
+        let access_key =
+            std::env::var("AKIDB_S3_ACCESS_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+        let secret_key =
+            std::env::var("AKIDB_S3_SECRET_KEY").unwrap_or_else(|_| "minioadmin".to_string());
+        let bucket = std::env::var("AKIDB_S3_BUCKET").unwrap_or_else(|_| "akidb-test".to_string());
 
         let config = S3Config {
             endpoint,
