@@ -329,7 +329,7 @@ pub mod api_key {
 
     /// Verify an API key against a hash
     pub fn verify(api_key: &str, api_key_hash: &str) -> bool {
-        hash(api_key) == api_key_hash
+        Self::hash(api_key) == api_key_hash
     }
 }
 
