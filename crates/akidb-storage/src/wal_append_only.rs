@@ -13,7 +13,10 @@ use uuid::Uuid;
 use akidb_core::{Error, Result};
 
 use crate::backend::StorageBackend;
-use crate::wal::{LogSequence, WalAppender, WalEntry, WalRecord, WalRecovery, WalReplayer, WalStreamId, RecoveryStats, ReplayStats};
+use crate::wal::{
+    LogSequence, RecoveryStats, ReplayStats, WalAppender, WalEntry, WalRecord, WalRecovery,
+    WalReplayer, WalStreamId,
+};
 
 /// Maximum number of entries per WAL segment before sealing
 const DEFAULT_SEGMENT_SIZE: usize = 10_000;

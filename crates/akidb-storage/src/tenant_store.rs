@@ -1,7 +1,7 @@
 use akidb_core::{TenantDescriptor, TenantError, TenantId};
 use async_trait::async_trait;
 use bytes::Bytes;
-use object_store::{ObjectStore, path::Path as ObjectPath};
+use object_store::{path::Path as ObjectPath, ObjectStore};
 use serde_json;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -175,9 +175,7 @@ impl TenantStore for S3TenantStore {
             .object_store
             .list(Some(&prefix))
             .await
-            .map_err(|e| {
-                TenantError::StorageError(format!("Failed to list tenants: {}", e))
-            })?;
+            .map_err(|e| TenantError::StorageError(format!("Failed to list tenants: {}", e)))?;
 
         let mut tenants = Vec::new();
 
@@ -209,11 +207,8 @@ impl TenantStore for S3TenantStore {
         tenants.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
         // Apply pagination
-        let paginated: Vec<TenantDescriptor> = tenants
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .collect();
+        let paginated: Vec<TenantDescriptor> =
+            tenants.into_iter().skip(offset).take(limit).collect();
 
         debug!("Retrieved {} tenants", paginated.len());
         Ok(paginated)

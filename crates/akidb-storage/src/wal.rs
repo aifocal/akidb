@@ -277,7 +277,6 @@ impl S3WalBackend {
 
         Ok(())
     }
-
 }
 
 #[async_trait]
