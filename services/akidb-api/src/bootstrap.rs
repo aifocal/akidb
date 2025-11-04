@@ -184,9 +184,7 @@ async fn load_collection(
                 // The in-memory metadata store only contains WAL-replayed data by default.
                 for (idx, payload) in payloads.iter().enumerate() {
                     let doc_id = doc_id_start + idx as u32;
-                    metadata_store
-                        .index_metadata(name, doc_id, payload)
-                        .await?;
+                    metadata_store.index_metadata(name, doc_id, payload).await?;
                 }
 
                 total_vectors_loaded += vector_count;
@@ -239,7 +237,8 @@ async fn load_collection(
         let mut total_replayed = 0;
 
         // Maintain primary_key → doc_id mapping for Delete/Upsert operations
-        let mut key_to_doc_id: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut key_to_doc_id: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
 
         loop {
             // Fetch next batch starting from last processed LSN
@@ -311,7 +310,9 @@ async fn load_collection(
                             index_provider.add_batch(&index_handle, batch).await?;
 
                             // Index metadata and track key → doc_id mapping
-                            for (idx, (key, payload)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                            for (idx, (key, payload)) in
+                                batch_keys.iter().zip(batch_payloads.iter()).enumerate()
+                            {
                                 let doc_id = doc_id_start + idx as u32;
                                 metadata_store.index_metadata(name, doc_id, payload).await?;
                                 key_to_doc_id.insert(key.clone(), doc_id);
@@ -331,7 +332,9 @@ async fn load_collection(
                         // Process delete operation
                         if let Some(&doc_id) = key_to_doc_id.get(&primary_key) {
                             // Remove from index
-                            index_provider.remove(&index_handle, &[primary_key.clone()]).await?;
+                            index_provider
+                                .remove(&index_handle, &[primary_key.clone()])
+                                .await?;
 
                             // Remove from metadata store
                             metadata_store.remove_metadata(name, doc_id).await?;
@@ -339,7 +342,10 @@ async fn load_collection(
                             // Remove from mapping
                             key_to_doc_id.remove(&primary_key);
 
-                            debug!("WAL replay: Deleted vector with key '{}' (doc_id: {})", primary_key, doc_id);
+                            debug!(
+                                "WAL replay: Deleted vector with key '{}' (doc_id: {})",
+                                primary_key, doc_id
+                            );
                         } else {
                             warn!(
                                 "WAL replay: Cannot delete key '{}' - not found in collection '{}'",
