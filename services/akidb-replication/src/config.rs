@@ -27,7 +27,10 @@ impl ReplicationConfig {
             return Err("Bucket name cannot be empty".to_string());
         }
         if self.mode != "async" && self.mode != "sync" {
-            return Err(format!("Invalid mode '{}', must be 'async' or 'sync'", self.mode));
+            return Err(format!(
+                "Invalid mode '{}', must be 'async' or 'sync'",
+                self.mode
+            ));
         }
         Ok(())
     }

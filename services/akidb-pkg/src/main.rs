@@ -137,7 +137,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             s3_bucket,
             s3_region,
         } => {
-            println!("📦 Exporting collection '{}' to {}...", collection, output.display());
+            println!(
+                "📦 Exporting collection '{}' to {}...",
+                collection,
+                output.display()
+            );
 
             export_package(
                 collection,

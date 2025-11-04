@@ -117,14 +117,8 @@ mod tests {
 
     #[test]
     fn test_manifest_with_signature() {
-        let mut manifest = PackageManifest::new(
-            "test".to_string(),
-            1,
-            100,
-            1,
-            128,
-            "Euclidean".to_string(),
-        );
+        let mut manifest =
+            PackageManifest::new("test".to_string(), 1, 100, 1, 128, "Euclidean".to_string());
 
         manifest.signature = Some(PackageSignature {
             algorithm: "Ed25519".to_string(),

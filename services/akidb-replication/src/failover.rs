@@ -12,7 +12,11 @@ pub async fn trigger_failover(
     info!("Initiating failover to site: {}", target_site);
 
     if target_site != "primary" && target_site != "dr" {
-        return Err(format!("Invalid target site '{}', must be 'primary' or 'dr'", target_site).into());
+        return Err(format!(
+            "Invalid target site '{}', must be 'primary' or 'dr'",
+            target_site
+        )
+        .into());
     }
 
     // Check if primary is healthy (unless forced)
@@ -34,7 +38,10 @@ pub async fn trigger_failover(
 
     info!("Failover steps:");
     println!("\n1. Verifying target site health...");
-    println!("   Target: {}", if target_site == "dr" { &dr } else { &primary });
+    println!(
+        "   Target: {}",
+        if target_site == "dr" { &dr } else { &primary }
+    );
     println!("   ✅ Site is healthy");
 
     println!("\n2. Checking replication lag...");
