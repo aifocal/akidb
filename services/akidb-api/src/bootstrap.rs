@@ -353,7 +353,11 @@ async fn load_collection(
                             );
                         }
                     }
-                    akidb_storage::WalRecord::UpsertPayload { primary_key, payload, .. } => {
+                    akidb_storage::WalRecord::UpsertPayload {
+                        primary_key,
+                        payload,
+                        ..
+                    } => {
                         // IMPORTANT: Flush pending inserts before upsert (same reasoning as Delete)
                         if !batch_vectors.is_empty() {
                             let batch_count = batch_vectors.len();
@@ -369,7 +373,9 @@ async fn load_collection(
                             index_provider.add_batch(&index_handle, batch).await?;
 
                             // Index metadata and track key → doc_id mapping
-                            for (idx, (key, pl)) in batch_keys.iter().zip(batch_payloads.iter()).enumerate() {
+                            for (idx, (key, pl)) in
+                                batch_keys.iter().zip(batch_payloads.iter()).enumerate()
+                            {
                                 let doc_id = doc_id_start + idx as u32;
                                 metadata_store.index_metadata(name, doc_id, pl).await?;
                                 key_to_doc_id.insert(key.clone(), doc_id);
@@ -383,13 +389,18 @@ async fn load_collection(
                             batch_vectors.clear();
                             batch_payloads.clear();
 
-                            debug!("Flushed {} vectors before UpsertPayload operation", batch_count);
+                            debug!(
+                                "Flushed {} vectors before UpsertPayload operation",
+                                batch_count
+                            );
                         }
 
                         // Process upsert operation (update metadata only, vector stays same)
                         if let Some(&doc_id) = key_to_doc_id.get(&primary_key) {
                             // Update metadata store with new payload
-                            metadata_store.insert_metadata(name, doc_id, &payload).await?;
+                            metadata_store
+                                .insert_metadata(name, doc_id, &payload)
+                                .await?;
 
                             debug!(
                                 "WAL replay: Updated payload for key '{}' (doc_id: {})",
