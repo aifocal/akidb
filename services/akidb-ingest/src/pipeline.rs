@@ -65,7 +65,10 @@ impl IngestPipeline {
         let total_vectors = records.len();
 
         info!("Parsed {} vectors", total_vectors);
-        pb.set_message(format!("Parsed {} vectors, starting ingestion...", total_vectors));
+        pb.set_message(format!(
+            "Parsed {} vectors, starting ingestion...",
+            total_vectors
+        ));
 
         // Process in batches
         let mut segments_created = 0;

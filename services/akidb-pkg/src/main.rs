@@ -37,7 +37,11 @@ enum Commands {
         sign_key: Option<PathBuf>,
 
         /// S3 endpoint
-        #[arg(long, env = "AKIDB_S3_ENDPOINT", default_value = "http://localhost:9000")]
+        #[arg(
+            long,
+            env = "AKIDB_S3_ENDPOINT",
+            default_value = "http://localhost:9000"
+        )]
         s3_endpoint: String,
 
         /// S3 access key
@@ -83,7 +87,11 @@ enum Commands {
         verify_signature: bool,
 
         /// S3 endpoint
-        #[arg(long, env = "AKIDB_S3_ENDPOINT", default_value = "http://localhost:9000")]
+        #[arg(
+            long,
+            env = "AKIDB_S3_ENDPOINT",
+            default_value = "http://localhost:9000"
+        )]
         s3_endpoint: String,
 
         /// S3 access key
@@ -219,16 +227,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  Vector Dimension: {}", result.manifest.vector_dim);
             println!("  Distance Metric: {}", result.manifest.distance_metric);
             println!("\nSize:");
-            println!("  Compressed: {} bytes ({:.2} MB)",
+            println!(
+                "  Compressed: {} bytes ({:.2} MB)",
                 result.manifest.compressed_size_bytes,
                 result.manifest.compressed_size_bytes as f64 / 1_000_000.0
             );
-            println!("  Uncompressed: {} bytes ({:.2} MB)",
+            println!(
+                "  Uncompressed: {} bytes ({:.2} MB)",
                 result.manifest.uncompressed_size_bytes,
                 result.manifest.uncompressed_size_bytes as f64 / 1_000_000.0
             );
-            println!("  Compression Ratio: {:.2}x",
-                result.manifest.uncompressed_size_bytes as f64 / result.manifest.compressed_size_bytes as f64
+            println!(
+                "  Compression Ratio: {:.2}x",
+                result.manifest.uncompressed_size_bytes as f64
+                    / result.manifest.compressed_size_bytes as f64
             );
 
             Ok(())

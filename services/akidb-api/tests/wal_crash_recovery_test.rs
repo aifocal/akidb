@@ -474,7 +474,10 @@ async fn test_wal_replay_delete_operations() {
 
     // Verify WAL has 7 entries (5 inserts + 2 deletes)
     let replay_stats = wal.replay(wal_stream_id, None).await.unwrap();
-    assert_eq!(replay_stats.records, 7, "Should have 7 WAL records before crash");
+    assert_eq!(
+        replay_stats.records, 7,
+        "Should have 7 WAL records before crash"
+    );
 
     // Phase 3: Simulate crash - create new state
     let storage2 = state.storage.clone();
@@ -521,7 +524,11 @@ async fn test_wal_replay_delete_operations() {
 
     // Verify the deleted vectors are actually gone from metadata store
     // Keys key_1 and key_3 should not exist in metadata
-    let all_docs = state2.metadata_store.get_all_docs("test_delete_replay").await.unwrap();
+    let all_docs = state2
+        .metadata_store
+        .get_all_docs("test_delete_replay")
+        .await
+        .unwrap();
 
     // Should have 3 documents (0, 2, 4) since doc_ids match insertion order
     assert_eq!(
@@ -620,7 +627,10 @@ async fn test_wal_replay_upsert_operations() {
 
     // Verify WAL has 5 entries (3 inserts + 2 upserts)
     let replay_stats = wal.replay(wal_stream_id, None).await.unwrap();
-    assert_eq!(replay_stats.records, 5, "Should have 5 WAL records before crash");
+    assert_eq!(
+        replay_stats.records, 5,
+        "Should have 5 WAL records before crash"
+    );
 
     // Phase 3: Simulate crash - create new state
     let storage2 = state.storage.clone();
@@ -662,7 +672,11 @@ async fn test_wal_replay_upsert_operations() {
     assert_eq!(next_doc_id, 3, "Should have 3 vectors");
 
     // Verify all 3 documents exist in metadata store
-    let all_docs = state2.metadata_store.get_all_docs("test_upsert_replay").await.unwrap();
+    let all_docs = state2
+        .metadata_store
+        .get_all_docs("test_upsert_replay")
+        .await
+        .unwrap();
     assert_eq!(all_docs.len(), 3, "Should have 3 documents");
 
     // Verify doc_ids 0, 1, 2 exist
@@ -693,7 +707,11 @@ async fn test_wal_replay_upsert_operations() {
         .find_term("test_upsert_replay", "version", &json!(1))
         .await
         .unwrap();
-    assert_eq!(version1_docs.len(), 1, "Should have 1 document with version=1");
+    assert_eq!(
+        version1_docs.len(),
+        1,
+        "Should have 1 document with version=1"
+    );
     assert!(version1_docs.contains(1), "doc_id 1 should have version=1");
 
     println!("✅ WAL replay Upsert test passed: 2 payloads correctly updated, 1 unchanged");

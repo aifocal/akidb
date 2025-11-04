@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
+pub mod language;
 mod parsers;
 mod pipeline;
-pub mod language;
 
 use parsers::{CsvParser, JsonlParser, ParquetParser, VectorParser};
 use pipeline::IngestPipeline;
@@ -49,7 +49,11 @@ struct Cli {
     parallel: usize,
 
     /// S3 endpoint
-    #[arg(long, env = "AKIDB_S3_ENDPOINT", default_value = "http://localhost:9000")]
+    #[arg(
+        long,
+        env = "AKIDB_S3_ENDPOINT",
+        default_value = "http://localhost:9000"
+    )]
     s3_endpoint: String,
 
     /// S3 access key

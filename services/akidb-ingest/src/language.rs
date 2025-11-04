@@ -489,9 +489,7 @@ mod tests {
     #[test]
     fn test_tokenize_whitespace_only() {
         let detector = LanguageDetector::new();
-        let tokens = detector
-            .tokenize("   ", SupportedLanguage::EN)
-            .unwrap();
+        let tokens = detector.tokenize("   ", SupportedLanguage::EN).unwrap();
         assert_eq!(tokens.len(), 0);
     }
 

@@ -12,7 +12,6 @@
 ///   - ZH (Chinese - Simplified & Traditional)
 ///   - ES (Spanish)
 ///   - JA (Japanese)
-
 use akidb_ingest::language::{LanguageDetector, SupportedLanguage};
 use std::collections::HashMap;
 
@@ -65,7 +64,10 @@ fn main() {
 
                 // Tokenize
                 if let Ok(tokens) = detector.tokenize(text, lang) {
-                    println!("   🔍 First 10 tokens: {:?}", &tokens[..tokens.len().min(10)]);
+                    println!(
+                        "   🔍 First 10 tokens: {:?}",
+                        &tokens[..tokens.len().min(10)]
+                    );
                 }
 
                 // Enrich payload with language metadata

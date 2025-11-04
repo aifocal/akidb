@@ -104,7 +104,10 @@ async fn test_health_check_detailed() {
     );
 
     println!("✅ Detailed health check test passed");
-    println!("   Response: {}", serde_json::to_string_pretty(&health).unwrap());
+    println!(
+        "   Response: {}",
+        serde_json::to_string_pretty(&health).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -1008,10 +1011,7 @@ async fn test_metrics_endpoint() {
         text.contains("akidb_active_connections"),
         "Metrics should include active connections gauge"
     );
-    assert!(
-        text.contains("# HELP"),
-        "Metrics should include help text"
-    );
+    assert!(text.contains("# HELP"), "Metrics should include help text");
     assert!(
         text.contains("# TYPE"),
         "Metrics should include type information"

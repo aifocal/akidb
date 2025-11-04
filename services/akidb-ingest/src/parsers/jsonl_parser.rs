@@ -101,7 +101,11 @@ impl VectorParser for JsonlParser {
                 }
             }
 
-            records.push(VectorRecord { id, vector, payload });
+            records.push(VectorRecord {
+                id,
+                vector,
+                payload,
+            });
         }
 
         Ok(records)

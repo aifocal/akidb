@@ -48,9 +48,7 @@ impl ParquetParser {
             let float_array = value_array
                 .as_any()
                 .downcast_ref::<Float32Array>()
-                .ok_or_else(|| {
-                    ParseError::Other("Vector elements are not float32".to_string())
-                })?;
+                .ok_or_else(|| ParseError::Other("Vector elements are not float32".to_string()))?;
 
             let vector: Vec<f32> = (0..float_array.len())
                 .map(|j| float_array.value(j))
@@ -125,10 +123,16 @@ impl VectorParser for ParquetParser {
                     let array = batch.column(*col_idx);
 
                     // Convert Arrow value to JSON value (simplified - only handles strings and numbers)
-                    let json_value = if let Some(string_array) = array.as_any().downcast_ref::<StringArray>() {
+                    let json_value = if let Some(string_array) =
+                        array.as_any().downcast_ref::<StringArray>()
+                    {
                         serde_json::Value::String(string_array.value(row_idx).to_string())
-                    } else if let Some(float_array) = array.as_any().downcast_ref::<Float32Array>() {
-                        serde_json::Value::Number(serde_json::Number::from_f64(float_array.value(row_idx) as f64).unwrap())
+                    } else if let Some(float_array) = array.as_any().downcast_ref::<Float32Array>()
+                    {
+                        serde_json::Value::Number(
+                            serde_json::Number::from_f64(float_array.value(row_idx) as f64)
+                                .unwrap(),
+                        )
                     } else {
                         // Fallback: convert to string
                         serde_json::Value::String(format!("{:?}", array))
@@ -137,7 +141,11 @@ impl VectorParser for ParquetParser {
                     payload.insert(col_name.clone(), json_value);
                 }
 
-                all_records.push(VectorRecord { id, vector, payload });
+                all_records.push(VectorRecord {
+                    id,
+                    vector,
+                    payload,
+                });
             }
         }
 

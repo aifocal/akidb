@@ -32,8 +32,8 @@ pub async fn export_package(
     let manifest = PackageManifest::new(
         collection.clone(),
         1,
-        0, // total_vectors (would be loaded from collection)
-        0, // total_segments
+        0,   // total_vectors (would be loaded from collection)
+        0,   // total_segments
         768, // vector_dim (would be from collection descriptor)
         "Cosine".to_string(),
     );
