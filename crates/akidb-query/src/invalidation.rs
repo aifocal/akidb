@@ -33,6 +33,7 @@ pub struct InvalidationTracker {
     /// Map: vector_id -> set of cache keys affected by this vector
     vector_caches: Arc<RwLock<std::collections::HashMap<String, HashSet<String>>>>,
     /// Configuration
+    #[allow(dead_code)]
     config: InvalidationConfig,
 }
 
@@ -106,7 +107,7 @@ impl InvalidationTracker {
     /// Invalidate all caches for a collection
     ///
     /// Called when collection is dropped or rebuilt.
-    pub async fn invalidate_collection(&self, collection: &str, tenant_id: &str) {
+    pub async fn invalidate_collection(&self, _collection: &str, _tenant_id: &str) {
         // For now, clear all tracking (simplified)
         // In production, would filter by collection/tenant
         let mut cache_vectors = self.cache_vectors.write().await;

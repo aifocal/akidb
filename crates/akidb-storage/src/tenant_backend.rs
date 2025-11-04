@@ -69,11 +69,42 @@ impl StorageBackend for TenantStorageBackend {
     }
 
     async fn create_collection(&self, descriptor: &CollectionDescriptor) -> Result<()> {
-        self.inner.create_collection(descriptor).await
+        // Store collection descriptor with tenant prefix
+        let key =
+            self.with_tenant_prefix(&format!("collections/{}/descriptor.json", descriptor.name));
+        let data = serde_json::to_vec(descriptor)
+            .map_err(|e| akidb_core::Error::Storage(e.to_string()))?;
+        self.inner.put_object(&key, Bytes::from(data)).await?;
+
+        // Create initial manifest
+        let manifest = CollectionManifest {
+            collection: descriptor.name.clone(),
+            dimension: descriptor.vector_dim as u32,
+            metric: descriptor.distance,
+            latest_version: 0,
+            total_vectors: 0,
+            epoch: 0,
+            created_at: Some(chrono::Utc::now()),
+            updated_at: chrono::Utc::now(),
+            snapshot: None,
+            segments: Vec::new(),
+        };
+
+        // Use the tenant wrapper's persist_manifest to add tenant prefix
+        self.persist_manifest(&manifest).await
     }
 
     async fn drop_collection(&self, name: &str) -> Result<()> {
-        self.inner.drop_collection(name).await
+        // List and remove all objects with this collection prefix (with tenant prefix)
+        let prefix = format!("collections/{}/", name);
+        let keys = self.list_objects(&prefix).await?;
+
+        // Delete each object (list_objects already handles tenant prefix stripping)
+        for key in keys {
+            self.delete_object(&key).await?;
+        }
+
+        Ok(())
     }
 
     #[allow(deprecated)]
@@ -202,17 +233,40 @@ mod tests {
         let tenant2 = TenantStorageBackend::new(inner.clone(), "tenant_2".to_string());
 
         // Create collections for both tenants
-        let desc1 =
-            CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
-        let desc2 =
-            CollectionDescriptor::new("test_collection".to_string(), 128, DistanceMetric::Cosine);
+        let desc1 = CollectionDescriptor {
+            name: "test_collection".to_string(),
+            vector_dim: 128,
+            distance: DistanceMetric::Cosine,
+            replication: 1,
+            shard_count: 1,
+            payload_schema: Default::default(),
+            wal_stream_id: None,
+        };
+        let desc2 = CollectionDescriptor {
+            name: "test_collection".to_string(),
+            vector_dim: 128,
+            distance: DistanceMetric::Cosine,
+            replication: 1,
+            shard_count: 1,
+            payload_schema: Default::default(),
+            wal_stream_id: None,
+        };
 
         tenant1.create_collection(&desc1).await.unwrap();
         tenant2.create_collection(&desc2).await.unwrap();
 
         // Both tenants can have same collection name due to isolation
-        assert!(tenant1.load_manifest("test_collection").await.is_ok());
-        assert!(tenant2.load_manifest("test_collection").await.is_ok());
+        let result1 = tenant1.load_manifest("test_collection").await;
+        if let Err(e) = &result1 {
+            eprintln!("tenant1.load_manifest error: {:?}", e);
+        }
+        assert!(result1.is_ok());
+
+        let result2 = tenant2.load_manifest("test_collection").await;
+        if let Err(e) = &result2 {
+            eprintln!("tenant2.load_manifest error: {:?}", e);
+        }
+        assert!(result2.is_ok());
     }
 
     #[tokio::test]

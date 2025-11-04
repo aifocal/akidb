@@ -296,11 +296,25 @@ pub async fn batch_search_vectors(
     }
 
     // Validate each query vector payload prior to execution.
+    // CRITICAL: Track query IDs to detect duplicates within the batch.
+    // Duplicate IDs cause ambiguity in results - client cannot distinguish
+    // which result corresponds to which query, leading to data corruption
+    // if IDs are used as unique keys.
+    let mut seen_ids = std::collections::HashSet::with_capacity(req.queries.len());
+
     for (idx, query) in req.queries.iter().enumerate() {
         if query.id.is_empty() {
             return Err(ApiError::Validation(format!(
                 "Query {} must provide a non-empty id",
                 idx
+            )));
+        }
+
+        // Check for duplicate IDs within this batch
+        if !seen_ids.insert(&query.id) {
+            return Err(ApiError::Validation(format!(
+                "Duplicate query id '{}' found at index {}. All query ids in a batch must be unique.",
+                query.id, idx
             )));
         }
 

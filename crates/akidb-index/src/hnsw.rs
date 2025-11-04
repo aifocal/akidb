@@ -65,13 +65,13 @@ struct SerializableVectorStore {
 /// Type alias for HNSW index based on distance metric
 /// Note: hnsw_rs Hnsw requires a lifetime parameter, so we use it directly where needed
 /// In-memory vector store for HNSW index
-struct VectorStore {
+struct VectorStore<'a> {
     /// Collection name
     collection: String,
     /// Primary keys (index → key mapping)
     primary_keys: Vec<String>,
-    /// Vector data (row-major, dimension × count)
-    vectors: Vec<f32>,
+    /// Vector data stored per-vector (stable allocation for HNSW)
+    vectors: Vec<Arc<Vec<f32>>>,
     /// Metadata for each vector
     payloads: Vec<serde_json::Value>,
     /// Vector dimension
@@ -81,16 +81,37 @@ struct VectorStore {
     /// HNSW configuration
     config: HnswConfig,
     /// HNSW index (optional, built when vectors are added)
-    hnsw_index: Option<Hnsw<'static, f32, DistL2>>,
+    hnsw_index: Option<HnswIndex<'a>>,
 }
 
-impl VectorStore {
+/// Distance-specific HNSW index variants
+enum HnswIndex<'a> {
+    L2(Hnsw<'a, f32, DistL2>),
+    Cosine(Hnsw<'a, f32, DistCosine>),
+    Dot(Hnsw<'a, f32, DistDot>),
+}
+
+impl<'a> HnswIndex<'a> {
+    fn search(&self, query: &[f32], k: usize, ef_search: usize) -> Vec<Neighbour> {
+        match self {
+            HnswIndex::L2(index) => index.search(query, k, ef_search),
+            HnswIndex::Cosine(index) => index.search(query, k, ef_search),
+            HnswIndex::Dot(index) => index.search(query, k, ef_search),
+        }
+    }
+}
+
+impl<'a> VectorStore<'a> {
     /// Convert to serializable representation
     fn to_serializable(&self) -> SerializableVectorStore {
         SerializableVectorStore {
             collection: self.collection.clone(),
             primary_keys: self.primary_keys.clone(),
-            vectors: self.vectors.clone(),
+            vectors: self
+                .vectors
+                .iter()
+                .flat_map(|vec| vec.as_ref().iter().copied())
+                .collect(),
             payloads: self.payloads.clone(),
             dimension: self.dimension,
             distance: self.distance,
@@ -100,39 +121,77 @@ impl VectorStore {
 
     /// Create from serializable representation and rebuild HNSW index
     fn from_serializable(data: SerializableVectorStore) -> Self {
-        let config = data.config.clone();
+        let SerializableVectorStore {
+            collection,
+            primary_keys,
+            vectors,
+            payloads,
+            dimension,
+            distance,
+            config,
+        } = data;
+
+        assert!(
+            dimension > 0,
+            "Serialized vector store must have positive dimension"
+        );
+
+        assert!(
+            vectors.len() % dimension == 0,
+            "Serialized vector data length ({}) must be divisible by dimension ({})",
+            vectors.len(),
+            dimension
+        );
+
+        let vector_count = vectors.len() / dimension;
+        let owned_vectors: Vec<Arc<Vec<f32>>> = vectors
+            .chunks_exact(dimension)
+            .map(|chunk| Arc::new(chunk.to_vec()))
+            .collect();
+
+        let config_clone = config.clone();
+
         let mut store = Self {
-            collection: data.collection,
-            primary_keys: data.primary_keys,
-            vectors: data.vectors,
-            payloads: data.payloads,
-            dimension: data.dimension,
-            distance: data.distance,
-            config: data.config,
+            collection,
+            primary_keys,
+            vectors: owned_vectors,
+            payloads,
+            dimension,
+            distance,
+            config,
             hnsw_index: None,
         };
 
         // Rebuild HNSW index if there are vectors
-        store.rebuild_hnsw_index_with_config(config);
+        if vector_count > 0 {
+            store.rebuild_hnsw_index_with_config(config_clone);
+        }
 
         store
     }
 }
 
-impl VectorStore {
+impl<'a> VectorStore<'a> {
     /// Helper to find index by primary key
     fn find_index(&self, key: &str) -> Option<usize> {
         self.primary_keys.iter().position(|k| k == key)
     }
 }
 
-impl VectorStore {
+impl<'a> VectorStore<'a> {
     fn new(
         collection: String,
         dimension: usize,
         distance: DistanceMetric,
         config: HnswConfig,
     ) -> Self {
+        // SAFETY: Validate dimension > 0 to prevent division by zero
+        assert!(
+            dimension > 0,
+            "Vector dimension must be greater than 0, got {}",
+            dimension
+        );
+
         Self {
             collection,
             primary_keys: Vec::new(),
@@ -164,13 +223,24 @@ impl VectorStore {
                 )));
             }
 
+            // CRITICAL: Validate no NaN or Inf values in vectors
+            // NaN/Inf values cause undefined behavior in distance calculations and sorting
+            for (idx, &value) in vec.components.iter().enumerate() {
+                if !value.is_finite() {
+                    return Err(Error::Validation(format!(
+                        "Invalid vector component at index {}: {} (NaN or Inf not allowed)",
+                        idx, value
+                    )));
+                }
+            }
+
             // Check for duplicates
             if self.find_index(key).is_some() {
                 return Err(Error::Conflict(format!("Duplicate key: {}", key)));
             }
 
             self.primary_keys.push(key.clone());
-            self.vectors.extend_from_slice(&vec.components);
+            self.vectors.push(Arc::new(vec.components.clone()));
             self.payloads.push(batch.payloads[i].clone());
         }
 
@@ -184,15 +254,18 @@ impl VectorStore {
     /// Rebuild HNSW index with specific configuration using hnsw_rs
     fn rebuild_hnsw_index_with_config(&mut self, config: HnswConfig) {
         // INVARIANT CHECK: vectors length must be exact multiple of dimension
-        assert_eq!(
-            self.vectors.len() % self.dimension,
-            0,
-            "Data integrity error: vectors.len() ({}) must be divisible by dimension ({})",
-            self.vectors.len(),
-            self.dimension
-        );
+        for (idx, vector) in self.vectors.iter().enumerate() {
+            assert_eq!(
+                vector.len(),
+                self.dimension,
+                "Data integrity error: vector at index {} has length {} (expected {})",
+                idx,
+                vector.len(),
+                self.dimension
+            );
+        }
 
-        let count = self.vectors.len() / self.dimension;
+        let count = self.vectors.len();
 
         // HNSW is an approximate algorithm that works best with larger datasets
         const MIN_VECTORS_FOR_HNSW: usize = 100;
@@ -206,13 +279,6 @@ impl VectorStore {
             return;
         }
 
-        // Convert flat vector array to Vec<Vec<f32>>
-        let vectors_2d: Vec<Vec<f32>> = self
-            .vectors
-            .chunks_exact(self.dimension)
-            .map(|chunk| chunk.to_vec())
-            .collect();
-
         info!(
             "Building HNSW index with {} vectors (dimension={}), M={}, ef_construction={}, ef_search={}",
             count, self.dimension, config.m, config.ef_construction, config.ef_search
@@ -220,54 +286,59 @@ impl VectorStore {
 
         // Create HNSW parameters based on distance metric
         // hnsw_rs supports multiple distance metrics through anndists
-        let hnsw = match self.distance {
+        let mut index = match self.distance {
             DistanceMetric::L2 => {
                 let dist = DistL2;
-                Hnsw::<f32, DistL2>::new(
+                let hnsw = Hnsw::<f32, DistL2>::new(
                     config.m,
                     count,
                     config.ef_construction,
                     config.ef_search,
                     dist,
-                )
+                );
+                HnswIndex::L2(hnsw)
             }
             DistanceMetric::Cosine => {
-                // hnsw_rs doesn't have direct Cosine, use L2 on normalized vectors
-                // Normalization handled in search
-                let dist = DistL2;
-                Hnsw::<f32, DistL2>::new(
+                let dist = DistCosine;
+                let hnsw = Hnsw::<f32, DistCosine>::new(
                     config.m,
                     count,
                     config.ef_construction,
                     config.ef_search,
                     dist,
-                )
+                );
+                HnswIndex::Cosine(hnsw)
             }
             DistanceMetric::Dot => {
-                // For dot product, use L2 but interpret results differently
-                let dist = DistL2;
-                Hnsw::<f32, DistL2>::new(
+                let dist = DistDot;
+                let hnsw = Hnsw::<f32, DistDot>::new(
                     config.m,
                     count,
                     config.ef_construction,
                     config.ef_search,
                     dist,
-                )
+                );
+                HnswIndex::Dot(hnsw)
             }
         };
 
         // Insert vectors into HNSW index
         // For hnsw_rs, we need to use parallel_insert for better performance
-        let data_with_ids: Vec<(&Vec<f32>, usize)> = vectors_2d
+        let data_with_ids: Vec<(&Vec<f32>, usize)> = self
+            .vectors
             .iter()
             .enumerate()
-            .map(|(id, vec)| (vec, id))
+            .map(|(id, vec)| (vec.as_ref(), id))
             .collect();
 
         // Use hnsw_rs's parallel insertion for better performance
-        hnsw.parallel_insert(&data_with_ids);
+        match &mut index {
+            HnswIndex::L2(hnsw) => hnsw.parallel_insert(&data_with_ids),
+            HnswIndex::Cosine(hnsw) => hnsw.parallel_insert(&data_with_ids),
+            HnswIndex::Dot(hnsw) => hnsw.parallel_insert(&data_with_ids),
+        }
 
-        self.hnsw_index = Some(hnsw);
+        self.hnsw_index = Some(index);
 
         info!("HNSW index built successfully with {} vectors", count);
     }
@@ -289,7 +360,17 @@ impl VectorStore {
             )));
         }
 
-        let count = self.vectors.len() / self.dimension;
+        // CRITICAL: Validate no NaN or Inf values in query vector
+        for (idx, &value) in query.components.iter().enumerate() {
+            if !value.is_finite() {
+                return Err(Error::Validation(format!(
+                    "Invalid query vector component at index {}: {} (NaN or Inf not allowed)",
+                    idx, value
+                )));
+            }
+        }
+
+        let count = self.vectors.len();
         if count == 0 {
             return Ok(SearchResult {
                 query: query.clone(),
@@ -351,9 +432,17 @@ impl VectorStore {
                     }
 
                     // hnsw_rs returns distance (lower = closer)
-                    let score = neighbor.distance;
+                    let score = self.score_from_distance(neighbor.distance);
 
-                    if idx >= self.primary_keys.len() {
+                    // SAFETY: Check bounds for both primary_keys and payloads
+                    // to prevent index out of bounds panics
+                    if idx >= self.primary_keys.len() || idx >= self.payloads.len() {
+                        warn!(
+                            "Index {} out of bounds (keys: {}, payloads: {})",
+                            idx,
+                            self.primary_keys.len(),
+                            self.payloads.len()
+                        );
                         return None;
                     }
 
@@ -384,9 +473,7 @@ impl VectorStore {
                     }
                 }
 
-                let start = idx * self.dimension;
-                let end = start + self.dimension;
-                let vector = &self.vectors[start..end];
+                let vector = self.vectors.get(idx).map(|v| v.as_ref().as_slice())?;
 
                 let score = self.compute_distance(&query.components, vector);
                 Some((idx, score))
@@ -434,13 +521,7 @@ impl VectorStore {
                     return None;
                 }
 
-                let start = idx * self.dimension;
-                let end = start + self.dimension;
-                if end > self.vectors.len() {
-                    return None;
-                }
-
-                let vector = &self.vectors[start..end];
+                let vector = self.vectors.get(idx).map(|v| v.as_ref().as_slice())?;
                 let score = self.compute_distance(&query.components, vector);
                 Some((idx, score))
             })
@@ -478,7 +559,7 @@ impl VectorStore {
         })?;
 
         // Calculate selectivity and required oversampling
-        let count = self.vectors.len() / self.dimension;
+        let count = self.vectors.len();
         let filtered_count = filter.len() as usize;
         let selectivity = filtered_count as f64 / count as f64;
 
@@ -518,7 +599,7 @@ impl VectorStore {
 
                 Some(ScoredPoint {
                     primary_key: self.primary_keys[idx].clone(),
-                    score: neighbor.distance,
+                    score: self.score_from_distance(neighbor.distance),
                     payload: Some(self.payloads[idx].clone()),
                 })
             })
@@ -536,8 +617,16 @@ impl VectorStore {
         compute_distance_simd(self.distance, a, b)
     }
 
+    /// Convert raw HNSW distance value into user-facing score
+    fn score_from_distance(&self, distance: f32) -> f32 {
+        match self.distance {
+            DistanceMetric::Dot => -distance,
+            _ => distance,
+        }
+    }
+
     fn count(&self) -> usize {
-        self.vectors.len() / self.dimension
+        self.vectors.len()
     }
 }
 
@@ -545,7 +634,7 @@ impl VectorStore {
 pub struct HnswIndexProvider {
     config: HnswConfig,
     /// In-memory index storage
-    indices: Arc<RwLock<HashMap<Uuid, VectorStore>>>,
+    indices: Arc<RwLock<HashMap<Uuid, VectorStore<'static>>>>,
 }
 
 impl HnswIndexProvider {
@@ -567,15 +656,14 @@ impl HnswIndexProvider {
             .ok_or_else(|| Error::NotFound(format!("Index {} not found", handle.index_id)))?;
 
         // Convert flat vector array to Vec<Vec<f32>>
-        debug_assert_eq!(
-            store.vectors.len() % store.dimension,
-            0,
-            "vectors.len() must be divisible by dimension"
+        debug_assert!(
+            store.vectors.iter().all(|vec| vec.len() == store.dimension),
+            "each vector must equal configured dimension"
         );
         let vectors: Vec<Vec<f32>> = store
             .vectors
-            .chunks_exact(store.dimension)
-            .map(|chunk| chunk.to_vec())
+            .iter()
+            .map(|vec| vec.as_ref().clone())
             .collect();
 
         debug!(
@@ -656,6 +744,30 @@ impl IndexProvider for HnswIndexProvider {
             "Adding batch to HNSW index"
         );
 
+        // PERFORMANCE ISSUE: Write lock held during HNSW rebuild
+        //
+        // Current implementation:
+        // 1. Acquire write lock on indices HashMap
+        // 2. Call store.add_batch() which rebuilds HNSW index
+        // 3. HNSW rebuild can take SECONDS for large datasets (parallel_insert on 100K+ vectors)
+        // 4. Write lock held entire time, blocking:
+        //    - ALL concurrent searches (read lock blocked by write lock)
+        //    - ALL concurrent inserts (write lock is exclusive)
+        //
+        // Impact:
+        // - Insert latency: Seconds (acceptable - write operation)
+        // - Search latency during insert: Seconds (UNACCEPTABLE - blocking reads)
+        // - Throughput: Severely degraded under concurrent load
+        //
+        // Proper solution (requires refactoring):
+        // 1. Clone VectorStore (or use Arc<RwLock<VectorStore>>)
+        // 2. Release write lock
+        // 3. Rebuild HNSW on cloned store
+        // 4. Re-acquire write lock
+        // 5. Swap rebuilt index (atomic pointer swap)
+        //
+        // TODO: Implement lock-free HNSW rebuild for better concurrency
+        // This is a known architectural limitation for Phase 1/2.
         let mut indices = self.indices.write();
         let store = indices
             .get_mut(&handle.index_id)

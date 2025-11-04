@@ -715,7 +715,7 @@ mod tests {
 
         assert_eq!(deserialized.id, 0);
         assert_eq!(deserialized.entry_count, 10000);
-        assert_eq!(deserialized.sealed, true);
+        assert!(deserialized.sealed);
     }
 
     #[test]
@@ -782,6 +782,6 @@ mod tests {
         assert_eq!(sealed.start_lsn, 100);
         assert_eq!(sealed.end_lsn, 104); // 100 + 5 - 1
         assert_eq!(sealed.entry_count, 5);
-        assert_eq!(sealed.sealed, true);
+        assert!(sealed.sealed);
     }
 }

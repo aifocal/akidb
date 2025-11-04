@@ -1,6 +1,7 @@
 use akidb_core::{TenantDescriptor, TenantError, TenantId};
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use serde_json;
 use std::sync::Arc;
@@ -35,6 +36,7 @@ pub trait TenantStore: Send + Sync {
 /// S3-backed tenant storage
 pub struct S3TenantStore {
     object_store: Arc<dyn ObjectStore>,
+    #[allow(dead_code)]
     bucket: String,
 }
 
@@ -96,7 +98,13 @@ impl TenantStore for S3TenantStore {
 
         // Read from S3
         let result = self.object_store.get(&path).await.map_err(|e| {
-            if e.to_string().contains("404") || e.to_string().contains("NotFound") {
+            let error_str = e.to_string();
+            // Check for various "not found" error patterns from different object store backends
+            if error_str.contains("404")
+                || error_str.contains("NotFound")
+                || error_str.contains("not found")
+                || error_str.contains("No data in memory found")
+            {
                 TenantError::NotFound(tenant_id.clone())
             } else {
                 TenantError::StorageError(format!("Failed to read tenant manifest: {}", e))
@@ -171,9 +179,11 @@ impl TenantStore for S3TenantStore {
         let prefix = self.tenants_list_path();
 
         // List all tenant manifest files
-        let list_result = self
+        let list_result: Vec<_> = self
             .object_store
             .list(Some(&prefix))
+            .try_collect()
+            .await
             .map_err(|e| TenantError::StorageError(format!("Failed to list tenants: {}", e)))?;
 
         let mut tenants = Vec::new();
@@ -219,7 +229,13 @@ impl TenantStore for S3TenantStore {
         match self.object_store.head(&path).await {
             Ok(_) => Ok(true),
             Err(e) => {
-                if e.to_string().contains("404") || e.to_string().contains("NotFound") {
+                let error_str = e.to_string();
+                // Check for various "not found" error patterns from different object store backends
+                if error_str.contains("404")
+                    || error_str.contains("NotFound")
+                    || error_str.contains("not found")
+                    || error_str.contains("No data in memory found")
+                {
                     Ok(false)
                 } else {
                     Err(TenantError::StorageError(format!(
@@ -235,7 +251,6 @@ impl TenantStore for S3TenantStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use akidb_core::TenantQuota;
     use object_store::memory::InMemory;
 
     fn create_test_store() -> S3TenantStore {
@@ -353,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn test_tenant_validation() {
         let store = create_test_store();
-        let mut tenant = TenantDescriptor::new("".to_string(), None); // Invalid empty name
+        let tenant = TenantDescriptor::new("".to_string(), None); // Invalid empty name
 
         // Should fail validation
         let result = store.create_tenant(&tenant).await;

@@ -99,62 +99,45 @@ impl DiskANNIndex {
             return Err(DiskANNError::InvalidNodeId(node));
         }
 
-        // Start from entry point
-        let start = self.entry_point.unwrap_or(0);
+        // CRITICAL FIX: During early graph construction, graph-based greedy search fails
+        // because most nodes have no edges yet. Use brute-force nearest neighbor search
+        // to find actual nearest neighbors, then add them as edges to build a connected graph.
 
-        // Greedy search to find approximate nearest neighbors
-        let neighbors = self.greedy_search(node, start, self.config.build_list_size)?;
+        let mut candidates = Vec::new();
+
+        // Brute-force search: compute distance to all other vectors
+        for i in 0..self.vectors.len() {
+            if i == node {
+                continue; // Skip self
+            }
+
+            let dist = self.distance(&self.vectors[node], &self.vectors[i]);
+            candidates.push(SearchCandidate {
+                id: i,
+                distance: dist,
+            });
+        }
+
+        // Sort by distance (ascending) to get nearest neighbors
+        candidates.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
+        });
+
+        // Take top candidates up to build_list_size
+        let neighbors: Vec<SearchCandidate> = candidates
+            .into_iter()
+            .take(self.config.build_list_size)
+            .collect();
 
         // Add edges (bounded by max_degree)
         let max_neighbors = self.config.max_degree.min(neighbors.len());
-        for i in 0..max_neighbors {
-            self.graph.add_edge(node, neighbors[i].id);
+        for neighbor in neighbors.iter().take(max_neighbors) {
+            self.graph.add_edge(node, neighbor.id);
         }
 
         Ok(())
-    }
-
-    /// Greedy search from start node
-    fn greedy_search(
-        &self,
-        query_id: usize,
-        start: usize,
-        list_size: usize,
-    ) -> Result<Vec<SearchCandidate>, DiskANNError> {
-        let mut visited = HashSet::new();
-        let mut candidates = BinaryHeap::new();
-
-        // Start with entry point
-        let dist = self.distance(&self.vectors[query_id], &self.vectors[start]);
-        candidates.push(SearchCandidate {
-            id: start,
-            distance: dist,
-        });
-        visited.insert(start);
-
-        let mut best_candidates = Vec::new();
-
-        while !candidates.is_empty() && best_candidates.len() < list_size {
-            let current = candidates.pop().unwrap();
-            best_candidates.push(current.clone());
-
-            // Explore neighbors
-            for &neighbor_id in self.graph.neighbors(current.id) {
-                if visited.contains(&neighbor_id) {
-                    continue;
-                }
-
-                visited.insert(neighbor_id);
-
-                let dist = self.distance(&self.vectors[query_id], &self.vectors[neighbor_id]);
-                candidates.push(SearchCandidate {
-                    id: neighbor_id,
-                    distance: dist,
-                });
-            }
-        }
-
-        Ok(best_candidates)
     }
 
     /// Search for k nearest neighbors using beam search

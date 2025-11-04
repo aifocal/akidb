@@ -116,13 +116,29 @@ impl AppState {
     }
 
     /// Update collection index handle
-    pub async fn update_index_handle(&self, name: &str, handle: IndexHandle) -> Result<()> {
+    ///
+    /// Returns the actual handle that was set (either the new one or an existing one if set concurrently)
+    pub async fn update_index_handle(
+        &self,
+        name: &str,
+        handle: IndexHandle,
+    ) -> Result<IndexHandle> {
         let mut collections = self.collections.write().await;
 
         if let Some(metadata) = collections.get_mut(name) {
-            metadata.index_handle = Some(handle);
+            // CRITICAL: Check if index was already set by concurrent thread
+            // This prevents TOCTOU race where multiple threads build duplicate indices
+            if let Some(existing_handle) = &metadata.index_handle {
+                debug!(
+                    "Index handle already set for collection '{}' by concurrent thread, using existing handle {}",
+                    name, existing_handle.index_id
+                );
+                return Ok(existing_handle.clone());
+            }
+
+            metadata.index_handle = Some(handle.clone());
             debug!("Updated index handle for collection: {}", name);
-            Ok(())
+            Ok(handle)
         } else {
             Err(akidb_core::Error::NotFound(format!(
                 "Collection '{}' not found",
@@ -167,14 +183,27 @@ impl AppState {
     /// Bump collection epoch for cache invalidation
     ///
     /// Call this whenever vectors are inserted to invalidate cached queries
+    ///
+    /// # Safety
+    ///
+    /// Uses saturating_add to prevent epoch overflow (after 2^64 inserts).
+    /// While extremely unlikely in practice, overflow could cause cache poisoning
+    /// if old cached results (with epoch 2^64 - 1) wrap around and become "valid" again.
     pub async fn bump_collection_epoch(&self, name: &str) -> Result<u64> {
         let collections = self.collections.read().await;
 
         if let Some(metadata) = collections.get(name) {
+            // SAFETY: Use fetch_update with saturating_add to prevent overflow
             let new_epoch = metadata
                 .epoch
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
+                .fetch_update(
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                    |current| Some(current.saturating_add(1)),
+                )
+                .expect("fetch_update with Some(_) never fails")
+                .saturating_add(1); // Add 1 to get the new value (fetch_update returns old value)
+
             debug!("Bumped epoch for collection '{}' to {}", name, new_epoch);
             Ok(new_epoch)
         } else {

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 pub mod csv_parser;
 pub mod jsonl_parser;
@@ -24,6 +23,7 @@ pub trait VectorParser: Send {
     fn parse(&mut self) -> Result<Vec<VectorRecord>, Box<dyn std::error::Error>>;
 
     /// Get estimated total records (if available)
+    #[allow(dead_code)]
     fn estimated_total(&self) -> Option<usize> {
         None
     }
@@ -51,6 +51,7 @@ pub enum ParseError {
     ColumnNotFound(String),
 
     #[error("Invalid vector dimension: expected {expected}, got {actual}")]
+    #[allow(dead_code)]
     InvalidDimension { expected: usize, actual: usize },
 
     #[error("Parse error: {0}")]

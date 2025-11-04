@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
 
@@ -100,8 +99,81 @@ impl User {
             ));
         }
 
-        if self.email.is_empty() || !self.email.contains('@') {
-            return Err(UserError::InvalidEmail("Invalid email format".to_string()));
+        // CRITICAL FIX (Bug #7): Improved email validation beyond simple '@' check
+        //
+        // ISSUE: Previous validation only checked for '@' symbol, accepting invalid formats like:
+        // - "@@example.com" (multiple @ symbols)
+        // - "@" (just @ symbol)
+        // - "user@" (missing domain)
+        // - "user@domain" (missing TLD)
+        // - "user name@example.com" (spaces)
+        //
+        // FIX: RFC 5322-inspired validation (basic subset):
+        // 1. Exactly one '@' symbol
+        // 2. Local part (before @) must be non-empty and <= 64 chars
+        // 3. Domain part (after @) must be non-empty and contain at least one '.'
+        // 4. No whitespace allowed
+        // 5. Basic character validation
+        if self.email.is_empty() {
+            return Err(UserError::InvalidEmail(
+                "Email address cannot be empty".to_string(),
+            ));
+        }
+
+        if self.email.contains(char::is_whitespace) {
+            return Err(UserError::InvalidEmail(
+                "Email address cannot contain whitespace".to_string(),
+            ));
+        }
+
+        let parts: Vec<&str> = self.email.split('@').collect();
+        if parts.len() != 2 {
+            return Err(UserError::InvalidEmail(
+                "Email must contain exactly one '@' symbol".to_string(),
+            ));
+        }
+
+        let local_part = parts[0];
+        let domain_part = parts[1];
+
+        // Validate local part (before @)
+        if local_part.is_empty() {
+            return Err(UserError::InvalidEmail(
+                "Email local part (before @) cannot be empty".to_string(),
+            ));
+        }
+
+        if local_part.len() > 64 {
+            return Err(UserError::InvalidEmail(
+                "Email local part (before @) exceeds 64 characters".to_string(),
+            ));
+        }
+
+        // Validate domain part (after @)
+        if domain_part.is_empty() {
+            return Err(UserError::InvalidEmail(
+                "Email domain (after @) cannot be empty".to_string(),
+            ));
+        }
+
+        if !domain_part.contains('.') {
+            return Err(UserError::InvalidEmail(
+                "Email domain must contain at least one '.' for TLD".to_string(),
+            ));
+        }
+
+        // Validate domain has content before and after last dot (prevents "user@example." or "user@.com")
+        if domain_part.starts_with('.') || domain_part.ends_with('.') {
+            return Err(UserError::InvalidEmail(
+                "Email domain cannot start or end with '.'".to_string(),
+            ));
+        }
+
+        // Check for consecutive dots in domain
+        if domain_part.contains("..") {
+            return Err(UserError::InvalidEmail(
+                "Email domain cannot contain consecutive dots".to_string(),
+            ));
         }
 
         if self.password_hash.is_empty() {
@@ -433,20 +505,48 @@ pub enum UserError {
     SerializationError(String),
 }
 
-/// Helper to hash passwords
+/// Helper to hash passwords securely using Argon2
 pub mod password {
-    use super::*;
+    use argon2::{
+        password_hash::{
+            rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+        },
+        Argon2,
+    };
 
-    /// Hash a password using SHA-256 (in production, use bcrypt or argon2)
-    pub fn hash(password: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(password.as_bytes());
-        format!("{:x}", hasher.finalize())
+    /// Hash a password using Argon2id
+    ///
+    /// Returns the PHC string format hash that includes the algorithm, parameters, salt, and hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the password cannot be hashed (e.g., invalid UTF-8).
+    pub fn hash(password: &str) -> Result<String, String> {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+
+        argon2
+            .hash_password(password.as_bytes(), &salt)
+            .map(|hash| hash.to_string())
+            .map_err(|e| format!("Password hashing failed: {}", e))
     }
 
-    /// Verify a password against a hash
+    /// Verify a password against an Argon2 hash
+    ///
+    /// Uses constant-time comparison to prevent timing attacks.
+    ///
+    /// # Errors
+    ///
+    /// Returns false if the password doesn't match or if the hash format is invalid.
     pub fn verify(password: &str, password_hash: &str) -> bool {
-        hash(password) == password_hash
+        let parsed_hash = match PasswordHash::new(password_hash) {
+            Ok(hash) => hash,
+            Err(_) => return false,
+        };
+
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok()
     }
 }
 
@@ -638,11 +738,20 @@ mod tests {
     #[test]
     fn test_password_hashing() {
         let password = "test_password_123";
-        let hash = password::hash(password);
+        let hash = password::hash(password).expect("Failed to hash password");
 
+        // Hash should be in PHC string format (starts with $)
+        assert!(hash.starts_with("$argon2"));
         assert_ne!(password, hash);
+
+        // Verify correct password
         assert!(password::verify(password, &hash));
+
+        // Verify wrong password
         assert!(!password::verify("wrong_password", &hash));
+
+        // Verify invalid hash format
+        assert!(!password::verify(password, "invalid_hash"));
     }
 
     #[test]

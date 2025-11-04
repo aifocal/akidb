@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 /// Import an .akipkg package to a collection
+#[allow(clippy::too_many_arguments)]
 pub async fn import_package(
     file: PathBuf,
     collection: Option<String>,

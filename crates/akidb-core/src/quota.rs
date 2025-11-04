@@ -28,12 +28,12 @@ impl QuotaTracker {
     }
 
     /// Get quota limits for a tenant
-    pub fn get_quota(&self, tenant_id: &TenantId) -> Option<TenantQuota> {
+    pub fn get_quota(&self, tenant_id: &str) -> Option<TenantQuota> {
         self.limits.read().get(tenant_id).cloned()
     }
 
     /// Get current usage for a tenant
-    pub fn get_usage(&self, tenant_id: &TenantId) -> TenantUsage {
+    pub fn get_usage(&self, tenant_id: &str) -> TenantUsage {
         self.usage
             .read()
             .get(tenant_id)
@@ -53,7 +53,8 @@ impl QuotaTracker {
     pub fn increment_storage(&self, tenant_id: TenantId, bytes: u64) {
         let mut usage_map = self.usage.write();
         let usage = usage_map.entry(tenant_id).or_default();
-        usage.storage_bytes += bytes;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        usage.storage_bytes = usage.storage_bytes.saturating_add(bytes);
         usage.last_updated = Some(chrono::Utc::now());
     }
 
@@ -77,7 +78,8 @@ impl QuotaTracker {
     pub fn increment_collections(&self, tenant_id: TenantId) {
         let mut usage_map = self.usage.write();
         let usage = usage_map.entry(tenant_id).or_default();
-        usage.collection_count += 1;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        usage.collection_count = usage.collection_count.saturating_add(1);
         usage.last_updated = Some(chrono::Utc::now());
     }
 
@@ -101,7 +103,8 @@ impl QuotaTracker {
     pub fn increment_vectors(&self, tenant_id: TenantId, count: u64) {
         let mut usage_map = self.usage.write();
         let usage = usage_map.entry(tenant_id).or_default();
-        usage.total_vectors += count;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        usage.total_vectors = usage.total_vectors.saturating_add(count);
         usage.last_updated = Some(chrono::Utc::now());
     }
 
@@ -117,12 +120,13 @@ impl QuotaTracker {
     pub fn increment_api_requests(&self, tenant_id: TenantId) {
         let mut usage_map = self.usage.write();
         let usage = usage_map.entry(tenant_id).or_default();
-        usage.api_requests_last_minute += 1;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        usage.api_requests_last_minute = usage.api_requests_last_minute.saturating_add(1);
         usage.last_updated = Some(chrono::Utc::now());
     }
 
     /// Reset API request counter (called every minute)
-    pub fn reset_api_requests(&self, tenant_id: &TenantId) {
+    pub fn reset_api_requests(&self, tenant_id: &str) {
         let mut usage_map = self.usage.write();
         if let Some(usage) = usage_map.get_mut(tenant_id) {
             usage.api_requests_last_minute = 0;
@@ -132,20 +136,19 @@ impl QuotaTracker {
     /// Check if storage quota would be exceeded
     pub fn check_storage_quota(
         &self,
-        tenant_id: &TenantId,
+        tenant_id: &str,
         additional_bytes: u64,
     ) -> Result<(), TenantError> {
         let usage = self.get_usage(tenant_id);
-        let quota = self
-            .get_quota(tenant_id)
-            .unwrap_or_else(TenantQuota::default);
+        let quota = self.get_quota(tenant_id).unwrap_or_default();
 
         // Check if unlimited
         if quota.max_storage_bytes == 0 {
             return Ok(());
         }
 
-        let new_usage = usage.storage_bytes + additional_bytes;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        let new_usage = usage.storage_bytes.saturating_add(additional_bytes);
         if new_usage > quota.max_storage_bytes {
             warn!(
                 "Storage quota exceeded for tenant {}: {} + {} > {}",
@@ -160,11 +163,9 @@ impl QuotaTracker {
     }
 
     /// Check if collection quota would be exceeded
-    pub fn check_collection_quota(&self, tenant_id: &TenantId) -> Result<(), TenantError> {
+    pub fn check_collection_quota(&self, tenant_id: &str) -> Result<(), TenantError> {
         let usage = self.get_usage(tenant_id);
-        let quota = self
-            .get_quota(tenant_id)
-            .unwrap_or_else(TenantQuota::default);
+        let quota = self.get_quota(tenant_id).unwrap_or_default();
 
         // Check if unlimited
         if quota.max_collections == 0 {
@@ -187,20 +188,19 @@ impl QuotaTracker {
     /// Check if vector quota would be exceeded for a collection
     pub fn check_vector_quota(
         &self,
-        tenant_id: &TenantId,
+        tenant_id: &str,
         collection_vectors: u64,
         additional_vectors: u64,
     ) -> Result<(), TenantError> {
-        let quota = self
-            .get_quota(tenant_id)
-            .unwrap_or_else(TenantQuota::default);
+        let quota = self.get_quota(tenant_id).unwrap_or_default();
 
         // Check if unlimited
         if quota.max_vectors_per_collection == 0 {
             return Ok(());
         }
 
-        let new_count = collection_vectors + additional_vectors;
+        // SAFETY: Use saturating_add to prevent integer overflow
+        let new_count = collection_vectors.saturating_add(additional_vectors);
         if new_count > quota.max_vectors_per_collection {
             warn!(
                 "Vector quota exceeded for tenant {}: {} + {} > {}",
@@ -215,11 +215,9 @@ impl QuotaTracker {
     }
 
     /// Check if API rate limit would be exceeded
-    pub fn check_rate_limit(&self, tenant_id: &TenantId) -> Result<(), TenantError> {
+    pub fn check_rate_limit(&self, tenant_id: &str) -> Result<(), TenantError> {
         let usage = self.get_usage(tenant_id);
-        let quota = self
-            .get_quota(tenant_id)
-            .unwrap_or_else(TenantQuota::default);
+        let quota = self.get_quota(tenant_id).unwrap_or_default();
 
         // Check if unlimited
         if quota.api_rate_limit_per_second == 0 {
@@ -243,11 +241,9 @@ impl QuotaTracker {
     }
 
     /// Get quota utilization percentage for a tenant
-    pub fn get_quota_utilization(&self, tenant_id: &TenantId) -> QuotaUtilization {
+    pub fn get_quota_utilization(&self, tenant_id: &str) -> QuotaUtilization {
         let usage = self.get_usage(tenant_id);
-        let quota = self
-            .get_quota(tenant_id)
-            .unwrap_or_else(TenantQuota::default);
+        let quota = self.get_quota(tenant_id).unwrap_or_default();
 
         let storage_pct = if quota.max_storage_bytes > 0 {
             (usage.storage_bytes as f64 / quota.max_storage_bytes as f64 * 100.0) as u32
@@ -271,6 +267,114 @@ impl QuotaTracker {
             collections_percent: collections_pct,
             vectors_percent: vectors_pct,
         }
+    }
+
+    /// Atomically check and increment storage (fixes race condition)
+    ///
+    /// This method holds the lock for both check and increment operations,
+    /// preventing race conditions where multiple threads could exceed quota.
+    pub fn check_and_increment_storage(
+        &self,
+        tenant_id: TenantId,
+        additional_bytes: u64,
+    ) -> Result<(), TenantError> {
+        let quota = self.get_quota(&tenant_id).unwrap_or_default();
+
+        // Check if unlimited
+        if quota.max_storage_bytes == 0 {
+            // Still increment for tracking
+            self.increment_storage(tenant_id, additional_bytes);
+            return Ok(());
+        }
+
+        // Hold lock for both check and increment (atomic operation)
+        let mut usage_map = self.usage.write();
+        let usage = usage_map.entry(tenant_id).or_default();
+
+        let new_usage = usage.storage_bytes.saturating_add(additional_bytes);
+        if new_usage > quota.max_storage_bytes {
+            warn!(
+                "Storage quota would be exceeded: {} + {} > {}",
+                usage.storage_bytes, additional_bytes, quota.max_storage_bytes
+            );
+            return Err(TenantError::QuotaExceeded {
+                quota_type: "storage".to_string(),
+            });
+        }
+
+        // Atomically increment after successful check
+        usage.storage_bytes = new_usage;
+        usage.last_updated = Some(chrono::Utc::now());
+
+        Ok(())
+    }
+
+    /// Atomically check and increment collection count (fixes race condition)
+    pub fn check_and_increment_collection(&self, tenant_id: TenantId) -> Result<(), TenantError> {
+        let quota = self.get_quota(&tenant_id).unwrap_or_default();
+
+        // Check if unlimited
+        if quota.max_collections == 0 {
+            // Still increment for tracking
+            self.increment_collections(tenant_id);
+            return Ok(());
+        }
+
+        // Hold lock for both check and increment (atomic operation)
+        let mut usage_map = self.usage.write();
+        let usage = usage_map.entry(tenant_id).or_default();
+
+        if usage.collection_count >= quota.max_collections {
+            warn!(
+                "Collection quota would be exceeded: {} >= {}",
+                usage.collection_count, quota.max_collections
+            );
+            return Err(TenantError::QuotaExceeded {
+                quota_type: "collections".to_string(),
+            });
+        }
+
+        // Atomically increment after successful check
+        usage.collection_count = usage.collection_count.saturating_add(1);
+        usage.last_updated = Some(chrono::Utc::now());
+
+        Ok(())
+    }
+
+    /// Atomically check and increment vector count (fixes race condition)
+    pub fn check_and_increment_vectors(
+        &self,
+        tenant_id: TenantId,
+        collection_vectors: u64,
+        additional_vectors: u64,
+    ) -> Result<(), TenantError> {
+        let quota = self.get_quota(&tenant_id).unwrap_or_default();
+
+        // Check if unlimited
+        if quota.max_vectors_per_collection == 0 {
+            // Still increment for tracking
+            self.increment_vectors(tenant_id, additional_vectors);
+            return Ok(());
+        }
+
+        let new_count = collection_vectors.saturating_add(additional_vectors);
+        if new_count > quota.max_vectors_per_collection {
+            warn!(
+                "Vector quota would be exceeded: {} + {} > {}",
+                collection_vectors, additional_vectors, quota.max_vectors_per_collection
+            );
+            return Err(TenantError::QuotaExceeded {
+                quota_type: "vectors".to_string(),
+            });
+        }
+
+        // Atomically increment total vectors after successful check
+        let mut usage_map = self.usage.write();
+        let usage = usage_map.entry(tenant_id).or_default();
+        usage.total_vectors = usage.total_vectors.saturating_add(additional_vectors);
+        usage.last_updated = Some(chrono::Utc::now());
+
+        Ok(())
     }
 }
 
@@ -357,8 +461,10 @@ mod tests {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test".to_string();
 
-        let mut quota = TenantQuota::default();
-        quota.max_storage_bytes = 1000;
+        let quota = TenantQuota {
+            max_storage_bytes: 1000,
+            ..TenantQuota::default()
+        };
         tracker.set_quota(tenant_id.clone(), quota);
 
         // Should pass
@@ -376,8 +482,10 @@ mod tests {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test".to_string();
 
-        let mut quota = TenantQuota::default();
-        quota.max_collections = 5;
+        let quota = TenantQuota {
+            max_collections: 5,
+            ..TenantQuota::default()
+        };
         tracker.set_quota(tenant_id.clone(), quota);
 
         // Should pass
@@ -412,9 +520,11 @@ mod tests {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test".to_string();
 
-        let mut quota = TenantQuota::default();
-        quota.max_storage_bytes = 1000;
-        quota.max_collections = 10;
+        let quota = TenantQuota {
+            max_storage_bytes: 1000,
+            max_collections: 10,
+            ..TenantQuota::default()
+        };
         tracker.set_quota(tenant_id.clone(), quota);
 
         tracker.update_storage(tenant_id.clone(), 500); // 50%

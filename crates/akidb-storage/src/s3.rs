@@ -576,7 +576,13 @@ impl S3StorageBackend {
 
             if manifest.dimension != 0 && manifest.dimension != descriptor.vector_dim as u32 {
                 // Clean up uploaded segment on validation failure
-                let _ = self.delete_object_internal(&seg_key).await;
+                if let Err(cleanup_err) = self.delete_object_internal(&seg_key).await {
+                    warn!(
+                        "Failed to clean up segment {} after dimension validation failure: {}. \
+                         Segment may leak in S3 storage.",
+                        seg_key, cleanup_err
+                    );
+                }
                 return Err(Error::Validation(format!(
                     "Segment dimension {} does not match collection dimension {}",
                     descriptor.vector_dim, manifest.dimension
@@ -590,7 +596,13 @@ impl S3StorageBackend {
                 .any(|seg| seg.segment_id == descriptor.segment_id)
             {
                 // Clean up uploaded segment on conflict
-                let _ = self.delete_object_internal(&seg_key).await;
+                if let Err(cleanup_err) = self.delete_object_internal(&seg_key).await {
+                    warn!(
+                        "Failed to clean up duplicate segment {} after conflict: {}. \
+                         Segment may leak in S3 storage.",
+                        seg_key, cleanup_err
+                    );
+                }
                 return Err(Error::Conflict(format!(
                     "Segment {} already exists",
                     descriptor.segment_id
@@ -624,7 +636,13 @@ impl S3StorageBackend {
                     retry_count += 1;
                     if retry_count >= retry_config.max_attempts {
                         // Clean up uploaded segment on final failure
-                        let _ = self.delete_object_internal(&seg_key).await;
+                        if let Err(cleanup_err) = self.delete_object_internal(&seg_key).await {
+                            error!(
+                                "Failed to clean up segment {} after retry exhaustion: {}. \
+                                 Segment may leak in S3 storage. Manual cleanup may be required.",
+                                seg_key, cleanup_err
+                            );
+                        }
                         return Err(Error::Conflict(format!(
                             "Failed to write segment {} after {} retries due to manifest conflicts",
                             descriptor.segment_id, retry_config.max_attempts
@@ -640,7 +658,13 @@ impl S3StorageBackend {
                 }
                 Err(e) => {
                     // Clean up on other errors
-                    let _ = self.delete_object_internal(&seg_key).await;
+                    if let Err(cleanup_err) = self.delete_object_internal(&seg_key).await {
+                        error!(
+                            "Failed to clean up segment {} after error: {}. \
+                             Original error: {}. Segment may leak in S3 storage.",
+                            seg_key, cleanup_err, e
+                        );
+                    }
                     return Err(e);
                 }
             }

@@ -41,11 +41,21 @@ impl SimpleExecutionEngine {
                     ann_node.index_handle, ann_node.options.top_k
                 );
 
+                // CRITICAL: Validate dimension fits in u16 to prevent overflow
+                let dimension_usize = ann_node.query.components.len();
+                let dimension = u16::try_from(dimension_usize).map_err(|_| {
+                    Error::Validation(format!(
+                        "Query vector dimension {} exceeds maximum supported dimension {} (u16::MAX)",
+                        dimension_usize,
+                        u16::MAX
+                    ))
+                })?;
+
                 // Create index handle
                 let handle = akidb_index::IndexHandle {
                     index_id: ann_node.index_handle,
                     kind: self.index_provider.kind(),
-                    dimension: ann_node.query.components.len() as u16,
+                    dimension,
                     collection: "unknown".to_string(), // TODO: Get from context
                 };
 

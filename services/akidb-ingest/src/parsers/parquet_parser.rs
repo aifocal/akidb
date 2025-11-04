@@ -66,11 +66,11 @@ impl VectorParser for ParquetParser {
         let file = File::open(&self.file_path)?;
 
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let mut reader = builder.build()?;
+        let reader = builder.build()?;
 
         let mut all_records = Vec::new();
 
-        while let Some(batch) = reader.next() {
+        for batch in reader {
             let batch: RecordBatch = batch?;
             let schema = batch.schema();
 
@@ -114,9 +114,9 @@ impl VectorParser for ParquetParser {
             };
 
             // Build records
-            for row_idx in 0..batch.num_rows() {
+            for (row_idx, vector) in vectors.iter().enumerate() {
                 let id = id_string_array.value(row_idx).to_string();
-                let vector = vectors[row_idx].clone();
+                let vector = vector.clone();
 
                 let mut payload = HashMap::new();
                 for (col_idx, col_name) in &payload_indices {

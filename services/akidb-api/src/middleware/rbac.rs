@@ -1,10 +1,7 @@
-use akidb_core::{Permission, Role, User, UserError};
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
+use akidb_core::{Permission, Role, User};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -52,6 +49,23 @@ impl UserContext {
     }
 }
 
+/// JWT claims structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JwtClaims {
+    /// Subject (user_id)
+    sub: String,
+    /// Username
+    username: String,
+    /// Tenant ID
+    tenant_id: String,
+    /// User roles
+    roles: Vec<String>,
+    /// Expiration time (Unix timestamp)
+    exp: usize,
+    /// Issued at (Unix timestamp)
+    iat: usize,
+}
+
 /// RBAC enforcement state
 #[derive(Clone)]
 pub struct RbacEnforcementState {
@@ -59,13 +73,31 @@ pub struct RbacEnforcementState {
     /// In production, this would be a proper database
     users: Arc<std::sync::RwLock<std::collections::HashMap<String, User>>>,
     roles: Arc<std::sync::RwLock<std::collections::HashMap<String, Role>>>,
+    /// JWT secret key for token validation
+    jwt_secret: Arc<String>,
 }
 
 impl RbacEnforcementState {
     pub fn new() -> Self {
+        // Load JWT secret from environment or use default for development
+        let jwt_secret = std::env::var("AKIDB_JWT_SECRET").unwrap_or_else(|_| {
+            warn!("AKIDB_JWT_SECRET not set, using default (INSECURE for production)");
+            "development_secret_change_in_production".to_string()
+        });
+
         Self {
             users: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             roles: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            jwt_secret: Arc::new(jwt_secret),
+        }
+    }
+
+    /// Create RBAC state with custom JWT secret
+    pub fn with_jwt_secret(jwt_secret: String) -> Self {
+        Self {
+            users: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            roles: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            jwt_secret: Arc::new(jwt_secret),
         }
     }
 
@@ -115,6 +147,20 @@ impl RbacEnforcementState {
 
         permissions.into_iter().collect()
     }
+
+    /// Validate JWT token and extract claims
+    ///
+    /// CRITICAL SECURITY FIX (Bug #51): Replaces unsafe X-User-ID header trust
+    /// with cryptographically validated JWT tokens.
+    fn validate_jwt(&self, token: &str) -> Result<JwtClaims, String> {
+        let decoding_key = DecodingKey::from_secret(self.jwt_secret.as_bytes());
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true; // Ensure token hasn't expired
+
+        decode::<JwtClaims>(token, &decoding_key, &validation)
+            .map(|token_data| token_data.claims)
+            .map_err(|e| format!("Invalid JWT: {}", e))
+    }
 }
 
 impl Default for RbacEnforcementState {
@@ -163,23 +209,65 @@ pub async fn rbac_middleware(
             "RBAC state not configured".to_string(),
         ))?;
 
-    // Extract user context from JWT or API key
-    // In production, this would validate JWT token
-    // For now, we'll extract from a header (X-User-ID)
-    let user_id = request
+    // CRITICAL SECURITY FIX (Bug #51): Validate JWT token instead of trusting unsigned headers
+    //
+    // VULNERABILITY: Previous code blindly trusted X-User-ID header, allowing anyone with
+    // a valid API key to impersonate any user by setting X-User-ID to their target user's ID.
+    //
+    // FIX: Extract and cryptographically validate JWT Bearer token from Authorization header.
+    // Only trust user_id from validated, signed JWT tokens.
+
+    // Extract JWT from Authorization Bearer header
+    let jwt_token = request
         .headers()
-        .get("X-User-ID")
+        .get("Authorization")
         .and_then(|v| v.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer "))
         .ok_or((
             StatusCode::UNAUTHORIZED,
-            "User authentication required".to_string(),
+            "Missing Authorization: Bearer <jwt> header".to_string(),
         ))?;
+
+    // Validate JWT and extract claims
+    let claims = rbac_state.validate_jwt(jwt_token).map_err(|e| {
+        warn!("JWT validation failed: {}", e);
+        (
+            StatusCode::UNAUTHORIZED,
+            format!("Invalid JWT token: {}", e),
+        )
+    })?;
+
+    let user_id = &claims.sub;
 
     // Get user from store
     let user = rbac_state.get_user(user_id).ok_or((
         StatusCode::UNAUTHORIZED,
         format!("User not found: {}", user_id),
     ))?;
+
+    // Verify JWT claims match user record
+    if user.username != claims.username {
+        warn!(
+            "JWT username mismatch: token={}, user={}",
+            claims.username, user.username
+        );
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "JWT claims do not match user record".to_string(),
+        ));
+    }
+
+    // Verify JWT tenant matches tenant context
+    if claims.tenant_id != tenant_context.tenant_id {
+        warn!(
+            "JWT tenant mismatch: token={}, context={}",
+            claims.tenant_id, tenant_context.tenant_id
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            "JWT tenant does not match request tenant context".to_string(),
+        ));
+    }
 
     // Check if user is active
     if !user.is_active() {

@@ -72,6 +72,39 @@ pub async fn create_collection(
     validation::validate_collection_name(&req.name)?;
     validation::validate_vector_dim(req.vector_dim)?;
 
+    // CRITICAL FIX (Bug #9): Validate shard count
+    //
+    // ISSUE: No validation for shard_count=0, which could cause:
+    // - Division by zero in sharding logic
+    // - Invalid collection state
+    // - Replication validation bypass (replication > shard_count check fails with shard_count=0)
+    if req.shard_count == 0 {
+        return Err(ApiError::Validation(
+            "Shard count must be at least 1".to_string(),
+        ));
+    }
+
+    // CRITICAL FIX (Bug #34): Validate replication factor
+    //
+    // ISSUE: Previous code accepted replication = 0 or > shard_count, which:
+    // - replication = 0: Silently disables redundancy (data loss on single node failure)
+    // - replication > shard_count: Over-promises durability (impossible to fulfill)
+    //
+    // FIX: Enforce 1 <= replication <= shard_count
+    if req.replication == 0 {
+        return Err(ApiError::Validation(
+            "Replication factor must be at least 1. Use replication=1 for no redundancy."
+                .to_string(),
+        ));
+    }
+    if req.replication as u16 > req.shard_count {
+        return Err(ApiError::Validation(format!(
+            "Replication factor ({}) cannot exceed shard count ({}). \
+                 Each replica must be stored on a different shard.",
+            req.replication, req.shard_count
+        )));
+    }
+
     // Check if collection already exists
     if state.collection_exists(&req.name).await {
         return Err(ApiError::Conflict(format!(

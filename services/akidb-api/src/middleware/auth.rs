@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tracing::{debug, warn};
 
 /// API key configuration
@@ -30,6 +31,9 @@ impl Default for AuthConfig {
 
 impl AuthConfig {
     /// Create config from environment variable
+    ///
+    /// CRITICAL FIX (Bug #48): If auth is enabled but no API keys are configured,
+    /// fail fast at startup instead of silently rejecting all requests.
     pub fn from_env() -> Self {
         let enabled = std::env::var("AKIDB_AUTH_ENABLED")
             .unwrap_or_else(|_| "true".to_string())
@@ -42,6 +46,26 @@ impl AuthConfig {
             .filter(|s| !s.trim().is_empty())
             .map(|s| s.trim().to_string())
             .collect();
+
+        // CRITICAL SECURITY FIX (Bug #48): Fail fast if auth is enabled but no keys configured
+        if enabled && api_keys.is_empty() {
+            panic!(
+                "FATAL: Authentication is enabled (AKIDB_AUTH_ENABLED=true) but no API keys are configured.\n\
+                 \n\
+                 To fix this issue, choose ONE of the following options:\n\
+                 \n\
+                 Option 1 (RECOMMENDED for production):\n\
+                   Set AKIDB_API_KEYS environment variable with comma-separated API keys:\n\
+                   export AKIDB_API_KEYS=\"key1,key2,key3\"\n\
+                 \n\
+                 Option 2 (INSECURE - development/testing only):\n\
+                   Disable authentication:\n\
+                   export AKIDB_AUTH_ENABLED=false\n\
+                 \n\
+                 Refusing to start with enabled auth and no API keys to prevent \n\
+                 accidentally running an inaccessible API server."
+            );
+        }
 
         debug!(
             "Auth configured: enabled={}, key_count={}",
@@ -74,19 +98,26 @@ impl AuthConfig {
 
 /// Extract API key from request headers
 fn extract_api_key(headers: &HeaderMap) -> Option<String> {
-    // Try Authorization header first (Bearer token)
-    if let Some(auth_header) = headers.get("authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(key) = auth_str.strip_prefix("Bearer ") {
-                return Some(key.to_string());
-            }
-        }
-    }
-
-    // Try X-API-Key header
+    // IMPORTANT: Try X-API-Key header FIRST to allow coexistence with RBAC JWT middleware
+    // If X-API-Key is present, use it for API key authentication
+    // This allows Authorization: Bearer to be used for JWT tokens by RBAC middleware
     if let Some(api_key_header) = headers.get("x-api-key") {
         if let Ok(key) = api_key_header.to_str() {
             return Some(key.to_string());
+        }
+    }
+
+    // Fallback to Authorization header (Bearer token) only if X-API-Key not present
+    // This supports legacy clients that send API keys via Authorization header
+    if let Some(auth_header) = headers.get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(key) = auth_str.strip_prefix("Bearer ") {
+                // Only treat as API key if it starts with "ak_" prefix
+                // This prevents consuming JWT tokens meant for RBAC middleware
+                if key.starts_with("ak_") {
+                    return Some(key.to_string());
+                }
+            }
         }
     }
 
@@ -101,14 +132,11 @@ pub async fn auth_middleware(config: Arc<AuthConfig>, request: Request, next: Ne
         return next.run(request).await;
     }
 
-    // Only bypass auth for /health/live endpoint (for Kubernetes liveness probes)
-    // IMPORTANT: Metrics and readiness endpoints expose sensitive cluster information
-    // (WAL sizes, vector counts, service version, readiness state) and must be protected
-    // to prevent reconnaissance attacks. Only the liveness probe needs unauthenticated
-    // access for K8s to detect if the process is alive.
-    let path = request.uri().path();
-    if path == "/health/live" {
-        debug!("Skipping auth for liveness probe: {}", path);
+    // DEFENSE IN DEPTH: Bypass auth for Kubernetes liveness probe even if middleware is applied
+    // NOTE (Bug #49 fix): Health and metrics endpoints SHOULD be in separate public routes,
+    // but we add this bypass as defense-in-depth in case routes are misconfigured.
+    if request.uri().path() == "/health/live" {
+        debug!("Bypassing auth for Kubernetes liveness probe: /health/live");
         return next.run(request).await;
     }
 
@@ -125,8 +153,32 @@ pub async fn auth_middleware(config: Arc<AuthConfig>, request: Request, next: Ne
         }
     };
 
-    // Validate API key
-    if !config.api_keys.contains(&api_key) {
+    // CRITICAL SECURITY FIX (Bug #33): Use constant-time comparison to prevent timing attacks.
+    //
+    // VULNERABILITY: Vec::contains() uses optimized string comparison that short-circuits
+    // on first mismatch, creating measurable timing differences:
+    //
+    // Attack scenario:
+    // - Valid key: "AtG7xK2p..."
+    // - Try "aaaa..." → fails at byte 0 → ~5μs response
+    // - Try "Aaaa..." → fails at byte 1 → ~6μs response (LEAKED first byte!)
+    // - Try "Ataa..." → fails at byte 2 → ~7μs response (LEAKED second byte!)
+    //
+    // Attacker can extract full API key using ~256 * key_length timing measurements.
+    //
+    // FIX: Use constant-time comparison from `subtle` crate which processes
+    // all bytes regardless of mismatches, eliminating timing leak.
+    let api_key_valid = config.api_keys.iter().any(|valid_key| {
+        // Ensure both strings have same length before comparison
+        if api_key.len() != valid_key.len() {
+            return false;
+        }
+
+        // Constant-time comparison (always compares all bytes)
+        api_key.as_bytes().ct_eq(valid_key.as_bytes()).into()
+    });
+
+    if !api_key_valid {
         warn!("Invalid API key for request to {}", request.uri().path());
         return (StatusCode::UNAUTHORIZED, "Invalid API key").into_response();
     }
@@ -214,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_valid_bearer_token() {
-        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let config = Arc::new(AuthConfig::with_keys(vec!["ak_test-key".to_string()]));
         let app = Router::new()
             .route("/test", get(test_handler))
             .layer(middleware::from_fn(move |req, next| {
@@ -226,7 +278,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/test")
-                    .header("Authorization", "Bearer test-key")
+                    .header("Authorization", "Bearer ak_test-key")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -262,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_check_requires_auth() {
-        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let config = Arc::new(AuthConfig::with_keys(vec!["ak_test-key".to_string()]));
         let app = Router::new()
             .route("/health", get(test_handler))
             .layer(middleware::from_fn(move |req, next| {
@@ -293,7 +345,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/health")
-                    .header("Authorization", "Bearer test-key")
+                    .header("Authorization", "Bearer ak_test-key")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -332,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_ready_requires_auth() {
-        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let config = Arc::new(AuthConfig::with_keys(vec!["ak_test-key".to_string()]));
         let app = Router::new()
             .route("/health/ready", get(test_handler))
             .layer(middleware::from_fn(move |req, next| {
@@ -363,7 +415,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/health/ready")
-                    .header("Authorization", "Bearer test-key")
+                    .header("Authorization", "Bearer ak_test-key")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -375,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_requires_auth() {
-        let config = Arc::new(AuthConfig::with_keys(vec!["test-key".to_string()]));
+        let config = Arc::new(AuthConfig::with_keys(vec!["ak_test-key".to_string()]));
         let app = Router::new()
             .route("/metrics", get(test_handler))
             .layer(middleware::from_fn(move |req, next| {
@@ -406,7 +458,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/metrics")
-                    .header("Authorization", "Bearer test-key")
+                    .header("Authorization", "Bearer ak_test-key")
                     .body(Body::empty())
                     .unwrap(),
             )

@@ -155,6 +155,33 @@ pub async fn insert_vectors(
     };
 
     // Write to WAL before modifying any state (durability guarantee)
+    //
+    // IMPORTANT: WAL Idempotency and Partial Failure Recovery
+    //
+    // This function performs multiple state-modifying operations after WAL sync:
+    // 1. WAL sync (durable - point of no return)
+    // 2. Add vectors to index
+    // 3. Index metadata
+    // 4. Bump epoch
+    // 5. Persist to S3
+    //
+    // If any operation fails after WAL sync, we have two recovery mechanisms:
+    //
+    // 1. Immediate: Client receives error and can retry with same vector IDs
+    //    - Retry should be idempotent (replace existing vectors with same IDs)
+    //    - Current implementation: add_batch may add duplicates (depends on index provider)
+    //    - TODO: Implement idempotent insert (upsert semantics)
+    //
+    // 2. Crash recovery: WAL replay will re-execute all operations
+    //    - WAL replay should be idempotent
+    //    - Current implementation: May create duplicate vectors on replay
+    //    - TODO: Track completed WAL records to skip replayed duplicates
+    //
+    // Partial failure scenarios:
+    // - add_batch fails: WAL has vectors, index doesn't → WAL replay will retry
+    // - index_metadata fails: Vectors searchable but not filterable → Client retry needed
+    // - bump_epoch fails: Vectors searchable, cache not invalidated → Degraded but functional
+    // - persist to S3 fails: Vectors searchable, not durable in S3 → WAL replay will persist
     info!(
         "Writing {} vectors to WAL for collection '{}'",
         batch_len, collection_name
@@ -216,28 +243,57 @@ pub async fn insert_vectors(
             .await
             .map_err(ApiError::Internal)?;
 
-        // Update state
-        state
+        // Update state (returns existing handle if set by concurrent thread)
+        // CRITICAL: This prevents TOCTOU race where multiple threads build duplicate indices.
+        // If another thread already set the handle, we use theirs and discard ours.
+        let actual_handle = state
             .update_index_handle(&collection_name, handle.clone())
             .await
             .map_err(ApiError::Internal)?;
 
-        debug!("Created new index with ID: {}", handle.index_id);
-        handle
+        if actual_handle.index_id != handle.index_id {
+            debug!(
+                "Concurrent index build detected for collection '{}'. Using existing index {} instead of newly built {}",
+                collection_name, actual_handle.index_id, handle.index_id
+            );
+        } else {
+            debug!("Created new index with ID: {}", handle.index_id);
+        }
+
+        actual_handle
     };
 
-    // Bump collection epoch BEFORE adding vectors to index to prevent cache poisoning
-    // Race condition: If we bump AFTER add_batch(), concurrent searches could:
-    // 1. Read old epoch N
-    // 2. Find newly added vectors (from add_batch)
-    // 3. Cache results with old epoch N
-    // Result: Cache contains new data with old epoch key (cache poisoning)
-    state
-        .bump_collection_epoch(&collection_name)
-        .await
-        .map_err(ApiError::Internal)?;
+    // CRITICAL FIX (Bug #46): Index metadata BEFORE adding vectors to prevent race condition
+    //
+    // ISSUE: Previous code added vectors to index first (line 281), making them searchable via ANN,
+    // then indexed metadata (line 293). During this window:
+    // - Concurrent filtered search finds vector via ANN (searchable)
+    // - Tries to apply filter using metadata (not indexed yet)
+    // - Drops vector due to missing metadata (visible correctness bug)
+    //
+    // FIX: Reverse order - index metadata first, THEN add to ANN index.
+    // This ensures vectors are only searchable after metadata is ready for filtering.
+    // Worst case during race window: vector is filterable but not in ANN yet (miss, not incorrect result).
 
-    // Add vectors to index (vectors become searchable)
+    // 1. Index metadata FIRST for filter queries using globally reserved doc_id range
+    // IMPORTANT: Metadata indexing failures must propagate as errors to ensure data consistency.
+    for (idx, vec_input) in req.vectors.iter().enumerate() {
+        // Safety: idx < req.vectors.len() which was validated as <= u32::MAX at line 86
+        let offset = u32::try_from(idx).expect("idx within u32 range due to validation at line 86");
+        let doc_id = start_doc_id + offset;
+        state
+            .metadata_store
+            .index_metadata(&collection_name, doc_id, &vec_input.payload)
+            .await
+            .map_err(|e| {
+                ApiError::Internal(akidb_core::Error::Storage(format!(
+                    "Failed to index metadata for doc_id {}: {}. Aborting insert to maintain consistency.",
+                    doc_id, e
+                )))
+            })?;
+    }
+
+    // 2. Add vectors to ANN index AFTER metadata is indexed (vectors become searchable)
     let batch = IndexBatch {
         primary_keys: req.vectors.iter().map(|v| v.id.clone()).collect(),
         vectors: req
@@ -256,25 +312,31 @@ pub async fn insert_vectors(
         .await
         .map_err(ApiError::Internal)?;
 
-    // Index metadata for filter queries using globally reserved doc_id range
-    // IMPORTANT: Metadata indexing failures must propagate as errors to ensure data consistency.
-    // If metadata indexing fails, vectors would be searchable via ANN but invisible to filters,
-    // creating a permanent data inconsistency that WAL replay cannot fix.
-    for (idx, vec_input) in req.vectors.iter().enumerate() {
-        // Safety: idx < req.vectors.len() which was validated as <= u32::MAX at line 86
-        let offset = u32::try_from(idx).expect("idx within u32 range due to validation at line 86");
-        let doc_id = start_doc_id + offset;
-        state
-            .metadata_store
-            .index_metadata(&collection_name, doc_id, &vec_input.payload)
-            .await
-            .map_err(|e| {
-                ApiError::Internal(akidb_core::Error::Storage(format!(
-                    "Failed to index metadata for doc_id {}: {}. Aborting insert to maintain consistency.",
-                    doc_id, e
-                )))
-            })?;
-    }
+    // Bump collection epoch AFTER add_batch and metadata indexing to minimize inconsistency window
+    //
+    // DESIGN DECISION: Epoch bump placement trade-offs
+    //
+    // Option A - Bump BEFORE add_batch (previous implementation):
+    //   Pro: Prevents cache poisoning race (cache invalidated before vectors searchable)
+    //   Con: If add_batch fails, epoch already bumped → unnecessary cache invalidation overhead
+    //   Con: If metadata indexing fails, epoch bumped but vectors not fully indexed
+    //
+    // Option B - Bump AFTER add_batch and metadata indexing (current implementation):
+    //   Pro: If add_batch fails, no state change (epoch not bumped, no cache overhead)
+    //   Pro: If metadata indexing fails, error propagates before epoch bump
+    //   Pro: Only bump epoch if vectors are fully indexed and searchable
+    //   Con: Small cache poisoning window (concurrent searches could cache stale results)
+    //   Mitigation: Cache TTL will eventually expire stale entries; correctness not affected
+    //
+    // Rationale: Option B chosen because:
+    // 1. Minimizes unnecessary cache invalidation (performance)
+    // 2. Ensures epoch only bumped on successful insert (consistency)
+    // 3. Cache poisoning is temporary and doesn't affect correctness (acceptable trade-off)
+    // 4. If bump_epoch fails, vectors are still searchable (degraded but functional)
+    state
+        .bump_collection_epoch(&collection_name)
+        .await
+        .map_err(ApiError::Internal)?;
 
     // Persist vectors to S3 directly from request payload
     // IMPORTANT: We persist from req.vectors instead of extracting from index to avoid

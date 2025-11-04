@@ -20,17 +20,28 @@ use tracing::{info_span, Span};
 use uuid::Uuid;
 
 /// Builds the Axum router with custom auth config (for testing).
+///
+/// CRITICAL FIX (Bug #49): Separate public and protected routes to prevent
+/// auth middleware from blocking health/metrics endpoints needed by
+/// monitoring systems (Prometheus, Kubernetes).
 pub fn build_router_with_auth(state: AppState, auth_config: AuthConfig) -> Router {
     let auth_config = Arc::new(auth_config);
 
-    Router::new()
-        // Health check and metrics (no auth required)
+    // PUBLIC ROUTES: Health checks and metrics (no authentication required)
+    // These must remain accessible for Prometheus scraping and K8s probes
+    let public_routes = Router::new()
         .route("/health", get(detailed_health_handler))
         .route("/health/live", get(liveness_handler))
         .route("/health/ready", get(readiness_handler))
-        .route("/metrics", get(metrics_handler))
+        .route("/metrics", get(metrics_handler));
+
+    // PROTECTED ROUTES: All API endpoints requiring authentication
+    let protected_routes = Router::new()
         // Collection management
-        .route("/collections", get(list_collections).post(create_collection))
+        .route(
+            "/collections",
+            get(list_collections).post(create_collection),
+        )
         .route(
             "/collections/:name",
             get(get_collection).delete(delete_collection),
@@ -39,17 +50,25 @@ pub fn build_router_with_auth(state: AppState, auth_config: AuthConfig) -> Route
         .route("/collections/:name/vectors", post(insert_vectors))
         // Search
         .route("/collections/:name/search", post(search_vectors))
-        .route("/collections/:name/batch-search", post(batch_search_vectors))
-        // Add state
-        .with_state(state)
-        // Add authentication middleware (inner - executes after metrics)
+        .route(
+            "/collections/:name/batch-search",
+            post(batch_search_vectors),
+        )
+        // Add authentication middleware ONLY to protected routes
         .layer(middleware::from_fn(move |req, next| {
             let config = auth_config.clone();
             auth_middleware(config, req, next)
-        }))
-        // Add metrics middleware (outer - executes before auth, tracks ALL requests)
+        }));
+
+    // Combine public and protected routes
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        // Add state (shared across all routes)
+        .with_state(state)
+        // Add metrics middleware (tracks ALL requests including public routes)
         .layer(middleware::from_fn(track_metrics))
-        // Add logging layer (outermost)
+        // Add logging layer (outermost - logs ALL requests)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &Request| {

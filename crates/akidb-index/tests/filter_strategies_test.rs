@@ -217,7 +217,7 @@ async fn test_non_selective_filter_strategy() {
     };
 
     // Build index
-    let request = create_build_request(DIM as u16, DistanceMetric::Dot);
+    let request = create_build_request(DIM as u16, DistanceMetric::L2);
 
     let provider = HnswIndexProvider::default();
     let handle = provider.build(request).await.unwrap();

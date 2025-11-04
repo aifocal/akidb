@@ -68,15 +68,44 @@ impl VectorStore {
                 )));
             }
 
-            // Check for duplicates
-            if self.key_to_idx.contains_key(key) {
-                return Err(Error::Conflict(format!("Duplicate key: {}", key)));
+            // CRITICAL: Validate no NaN or Inf values in vectors
+            // NaN/Inf values cause undefined behavior in distance calculations and sorting
+            for (idx, &value) in vec.components.iter().enumerate() {
+                if !value.is_finite() {
+                    return Err(Error::Validation(format!(
+                        "Invalid vector component at index {}: {} (NaN or Inf not allowed)",
+                        idx, value
+                    )));
+                }
             }
 
-            let idx = self.vectors.len() / self.dimension;
-            self.key_to_idx.insert(key.clone(), idx);
-            self.vectors.extend_from_slice(&vec.components);
-            self.payloads.push(batch.payloads[i].clone());
+            // CRITICAL FIX (Bug #44): Implement upsert semantics for idempotency
+            //
+            // ISSUE: Previous code rejected duplicate keys with Error::Conflict, but:
+            // - WAL replay re-sends same LSN entries after crash recovery
+            // - Client retries send same request_id for reliability
+            // - Both require idempotent behavior: same input → same state
+            //
+            // FIX: Replace existing vector if key exists (upsert), maintaining idempotency.
+            // This ensures WAL replay and retries converge to correct state.
+            if let Some(&existing_idx) = self.key_to_idx.get(key) {
+                // Update existing vector in-place
+                let start = existing_idx * self.dimension;
+                let end = start + self.dimension;
+                self.vectors[start..end].copy_from_slice(&vec.components);
+                self.payloads[existing_idx] = batch.payloads[i].clone();
+
+                debug!(
+                    "Updated existing vector with key '{}' at index {} (idempotent upsert)",
+                    key, existing_idx
+                );
+            } else {
+                // Insert new vector
+                let idx = self.vectors.len() / self.dimension;
+                self.key_to_idx.insert(key.clone(), idx);
+                self.vectors.extend_from_slice(&vec.components);
+                self.payloads.push(batch.payloads[i].clone());
+            }
         }
 
         Ok(())
@@ -130,6 +159,16 @@ impl VectorStore {
                 self.dimension,
                 query.components.len()
             )));
+        }
+
+        // CRITICAL: Validate no NaN or Inf values in query vector
+        for (idx, &value) in query.components.iter().enumerate() {
+            if !value.is_finite() {
+                return Err(Error::Validation(format!(
+                    "Invalid query vector component at index {}: {} (NaN or Inf not allowed)",
+                    idx, value
+                )));
+            }
         }
 
         let count = self.vectors.len() / self.dimension;

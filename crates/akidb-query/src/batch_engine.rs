@@ -125,6 +125,22 @@ impl BatchExecutionEngine {
             filter,
         } = query;
 
+        // CRITICAL: Validate vector dimension matches collection
+        // Without this check, heterogeneous dimensions in batch cause:
+        // 1. Distance calculation errors (out-of-bounds access)
+        // 2. Index lookup failures (dimension mismatch)
+        // 3. Panics in SIMD operations expecting fixed dimension
+        let expected_dim = ctx.descriptor.vector_dim as usize;
+        if vector.len() != expected_dim {
+            return Err(Error::Validation(format!(
+                "Query {} has dimension {} but collection '{}' expects dimension {}",
+                id,
+                vector.len(),
+                collection,
+                expected_dim
+            )));
+        }
+
         let filter_bitmap = if let Some(filter_json) = filter {
             let parser = FilterParser::with_collection(self.metadata_store.clone(), collection);
             let bitmap = parser.parse(&filter_json).await?;

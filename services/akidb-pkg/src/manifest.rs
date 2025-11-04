@@ -1,4 +1,21 @@
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+/// Manifest validation errors
+#[derive(Debug, Error)]
+pub enum ManifestError {
+    #[error("Invalid collection name: {0}")]
+    InvalidCollectionName(String),
+
+    #[error("Invalid vector dimension: {0}")]
+    InvalidVectorDim(String),
+
+    #[error("Invalid distance metric: {0}")]
+    InvalidDistanceMetric(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+}
 
 /// Package manifest for .akipkg format
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +72,7 @@ pub struct PackageSignature {
 }
 
 impl PackageManifest {
-    /// Create a new manifest
+    /// Create a new manifest with validation
     pub fn new(
         collection_name: String,
         snapshot_version: u64,
@@ -63,8 +80,42 @@ impl PackageManifest {
         total_segments: usize,
         vector_dim: usize,
         distance_metric: String,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ManifestError> {
+        // Validate inputs
+        if collection_name.trim().is_empty() {
+            return Err(ManifestError::InvalidCollectionName(
+                "Collection name cannot be empty".to_string(),
+            ));
+        }
+
+        if collection_name.len() > 255 {
+            return Err(ManifestError::InvalidCollectionName(
+                "Collection name too long (max 255 characters)".to_string(),
+            ));
+        }
+
+        if vector_dim == 0 {
+            return Err(ManifestError::InvalidVectorDim(
+                "Vector dimension must be greater than 0".to_string(),
+            ));
+        }
+
+        if vector_dim > 10000 {
+            return Err(ManifestError::InvalidVectorDim(
+                "Vector dimension too large (max 10000)".to_string(),
+            ));
+        }
+
+        // Validate distance metric
+        let valid_metrics = ["Cosine", "Euclidean", "DotProduct"];
+        if !valid_metrics.contains(&distance_metric.as_str()) {
+            return Err(ManifestError::InvalidDistanceMetric(format!(
+                "Invalid distance metric '{}'. Must be one of: {:?}",
+                distance_metric, valid_metrics
+            )));
+        }
+
+        Ok(Self {
             version: "1.0".to_string(),
             collection_name,
             snapshot_version,
@@ -77,7 +128,7 @@ impl PackageManifest {
             vector_dim,
             distance_metric,
             signature: None,
-        }
+        })
     }
 
     /// Serialize to JSON
@@ -104,11 +155,12 @@ mod tests {
             5,
             768,
             "Cosine".to_string(),
-        );
+        )
+        .unwrap();
 
         let json = manifest.to_json().unwrap();
         assert!(json.contains("products"));
-        assert!(json.contains("\"version\":\"1.0\""));
+        assert!(json.contains("\"version\": \"1.0\""));
 
         let deserialized = PackageManifest::from_json(&json).unwrap();
         assert_eq!(deserialized.collection_name, "products");
@@ -118,7 +170,8 @@ mod tests {
     #[test]
     fn test_manifest_with_signature() {
         let mut manifest =
-            PackageManifest::new("test".to_string(), 1, 100, 1, 128, "Euclidean".to_string());
+            PackageManifest::new("test".to_string(), 1, 100, 1, 128, "Euclidean".to_string())
+                .unwrap();
 
         manifest.signature = Some(PackageSignature {
             algorithm: "Ed25519".to_string(),
@@ -129,5 +182,24 @@ mod tests {
         let json = manifest.to_json().unwrap();
         assert!(json.contains("Ed25519"));
         assert!(json.contains("aabbcc"));
+    }
+
+    #[test]
+    fn test_manifest_validation_empty_name() {
+        let result = PackageManifest::new("".to_string(), 1, 100, 1, 128, "Cosine".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_manifest_validation_zero_dim() {
+        let result = PackageManifest::new("test".to_string(), 1, 100, 1, 0, "Cosine".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_manifest_validation_invalid_metric() {
+        let result =
+            PackageManifest::new("test".to_string(), 1, 100, 1, 128, "Invalid".to_string());
+        assert!(result.is_err());
     }
 }

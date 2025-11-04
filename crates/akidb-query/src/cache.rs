@@ -1,8 +1,13 @@
 use moka::future::Cache as MokaCache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
+
+/// Type alias for key tracking: maps (tenant_id, collection) to set of cache keys
+type KeyTrackingMap = Arc<RwLock<HashMap<(String, String), HashSet<String>>>>;
 
 /// Query result cache with multi-level support
 ///
@@ -21,10 +26,19 @@ use std::time::Duration;
 /// - Tenant ID
 ///
 /// This ensures identical queries produce identical keys across instances.
+///
+/// # Key Tracking
+///
+/// To enable O(1) invalidation by (tenant_id, collection), we maintain a reverse index
+/// mapping from (tenant_id, collection) -> Set<cache_key>. This allows targeted invalidation
+/// without iterating over all cache entries.
 #[derive(Clone)]
 pub struct QueryCache {
     /// L1 in-memory cache (moka)
     memory_cache: Arc<MokaCache<String, CachedQueryResult>>,
+    /// Key tracking: (tenant_id, collection) -> Set<cache_key>
+    /// This allows O(1) targeted invalidation by tenant and collection
+    key_tracking: KeyTrackingMap,
     /// Configuration
     config: CacheConfig,
 }
@@ -39,6 +53,7 @@ impl QueryCache {
 
         Self {
             memory_cache: Arc::new(memory_cache),
+            key_tracking: Arc::new(RwLock::new(HashMap::new())),
             config,
         }
     }
@@ -49,14 +64,14 @@ impl QueryCache {
 
         // Include all query parameters
         hasher.update(query.collection.as_bytes());
-        hasher.update(&query.tenant_id.as_bytes());
+        hasher.update(query.tenant_id.as_bytes());
 
         // Normalize and hash query vector
         for &val in &query.query_vector {
-            hasher.update(&val.to_le_bytes());
+            hasher.update(val.to_le_bytes());
         }
 
-        hasher.update(&query.k.to_le_bytes());
+        hasher.update(query.k.to_le_bytes());
 
         // Sort filters by key for consistent hashing
         let mut sorted_filters = query.filters.clone();
@@ -75,7 +90,19 @@ impl QueryCache {
     }
 
     /// Store query result in L1 cache
-    pub async fn set(&self, key: String, result: CachedQueryResult) {
+    ///
+    /// Also registers the key in the tracking index for targeted invalidation
+    pub async fn set(&self, key: String, query: &QueryCacheKey, result: CachedQueryResult) {
+        // Register key in tracking map
+        let tracking_key = (query.tenant_id.clone(), query.collection.clone());
+        let mut tracking = self.key_tracking.write().await;
+        tracking
+            .entry(tracking_key)
+            .or_insert_with(HashSet::new)
+            .insert(key.clone());
+        drop(tracking);
+
+        // Store in cache
         self.memory_cache.insert(key, result).await;
     }
 
@@ -84,32 +111,33 @@ impl QueryCache {
         self.memory_cache.invalidate(key).await;
     }
 
-    /// Invalidate all cache entries for a collection
-    pub async fn invalidate_collection(&self, _collection: &str, _tenant_id: &str) {
-        // moka doesn't support prefix-based invalidation, so we need to iterate
-        // This is acceptable for L1 cache with bounded size (10k entries by default)
-        // For L2 Redis cache, use SCAN with pattern matching
+    /// Invalidate all cache entries for a specific tenant's collection
+    ///
+    /// Uses the key tracking index for O(1) lookup - only invalidates entries
+    /// belonging to the specified tenant and collection, preventing cross-tenant
+    /// cache poisoning.
+    pub async fn invalidate_collection(&self, collection: &str, tenant_id: &str) {
+        let tracking_key = (tenant_id.to_string(), collection.to_string());
 
-        // Iterate over all entries and invalidate matching ones
-        for (key, _) in self.memory_cache.iter() {
-            // Parse key to check if it matches this collection/tenant
-            // Key format: "qc:{hash}" where hash includes tenant_id and collection
-            // We need to invalidate conservatively since we can't decode the hash
-            // Solution: Track keys by collection/tenant in a separate map for O(1) lookup
-            // For now, invalidate all as a safe default until we implement key tracking
+        // Get all cache keys for this (tenant_id, collection) pair
+        let keys_to_invalidate = {
+            let mut tracking = self.key_tracking.write().await;
+            tracking.remove(&tracking_key).unwrap_or_default()
+        };
+
+        // Invalidate each cache entry
+        for key in keys_to_invalidate {
             self.memory_cache.invalidate(&key).await;
         }
-
-        // TODO: Implement key tracking map: HashMap<(TenantId, Collection), HashSet<CacheKey>>
-        // This would allow O(1) lookup and targeted invalidation without iteration
     }
 
     /// Get cache statistics
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             memory_entries: self.memory_cache.entry_count(),
-            memory_hit_rate: self.memory_cache.hit_count() as f64
-                / (self.memory_cache.hit_count() + self.memory_cache.miss_count()).max(1) as f64,
+            // Note: moka Cache no longer provides hit_count/miss_count in newer versions
+            // Set to 0.0 as placeholder until alternative statistics API is available
+            memory_hit_rate: 0.0,
         }
     }
 
@@ -209,14 +237,14 @@ mod tests {
         let config = CacheConfig::default();
         let cache = QueryCache::new(config);
 
-        let key = QueryCacheKey::new(
+        let query = QueryCacheKey::new(
             "tenant_1".to_string(),
             "test_collection".to_string(),
             vec![1.0, 2.0, 3.0],
             10,
         );
 
-        let cache_key = cache.generate_key(&key);
+        let cache_key = cache.generate_key(&query);
 
         // Cache miss initially
         assert!(cache.get(&cache_key).await.is_none());
@@ -232,7 +260,7 @@ mod tests {
             latency_ms: 10,
         };
 
-        cache.set(cache_key.clone(), result.clone()).await;
+        cache.set(cache_key.clone(), &query, result.clone()).await;
 
         // Cache hit
         let cached = cache.get(&cache_key).await;
@@ -291,14 +319,14 @@ mod tests {
         let config = CacheConfig::default();
         let cache = QueryCache::new(config);
 
-        let key = QueryCacheKey::new(
+        let query = QueryCacheKey::new(
             "tenant_1".to_string(),
             "test_collection".to_string(),
             vec![1.0, 2.0, 3.0],
             10,
         );
 
-        let cache_key = cache.generate_key(&key);
+        let cache_key = cache.generate_key(&query);
 
         let result = CachedQueryResult {
             results: vec![],
@@ -306,7 +334,7 @@ mod tests {
             latency_ms: 10,
         };
 
-        cache.set(cache_key.clone(), result).await;
+        cache.set(cache_key.clone(), &query, result).await;
         assert!(cache.get(&cache_key).await.is_some());
 
         // Invalidate
@@ -373,23 +401,87 @@ mod tests {
         let config = CacheConfig::default();
         let cache = QueryCache::new(config);
 
-        let key = QueryCacheKey::new(
+        let query = QueryCacheKey::new(
             "tenant_1".to_string(),
             "test_collection".to_string(),
             vec![1.0, 2.0, 3.0],
             10,
         );
 
-        let cache_key = cache.generate_key(&key);
+        let cache_key = cache.generate_key(&query);
         let result = CachedQueryResult {
             results: vec![],
             cached_at: chrono::Utc::now().timestamp(),
             latency_ms: 10,
         };
 
-        cache.set(cache_key.clone(), result).await;
+        cache.set(cache_key.clone(), &query, result).await;
+
+        // Wait for moka's background tasks to process the insertion
+        // Moka uses async background tasks for cache admission
+        cache.memory_cache.run_pending_tasks().await;
 
         let stats = cache.stats();
         assert_eq!(stats.memory_entries, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cache_collection_invalidation_tenant_isolation() {
+        let config = CacheConfig::default();
+        let cache = QueryCache::new(config);
+
+        // Create cache entries for two different tenants with same collection name
+        let query1 = QueryCacheKey::new(
+            "tenant_1".to_string(),
+            "products".to_string(),
+            vec![1.0, 2.0, 3.0],
+            10,
+        );
+        let query2 = QueryCacheKey::new(
+            "tenant_2".to_string(),
+            "products".to_string(),
+            vec![1.0, 2.0, 3.0],
+            10,
+        );
+        let query3 = QueryCacheKey::new(
+            "tenant_1".to_string(),
+            "orders".to_string(),
+            vec![4.0, 5.0, 6.0],
+            10,
+        );
+
+        let key1 = cache.generate_key(&query1);
+        let key2 = cache.generate_key(&query2);
+        let key3 = cache.generate_key(&query3);
+
+        let result = CachedQueryResult {
+            results: vec![],
+            cached_at: chrono::Utc::now().timestamp(),
+            latency_ms: 10,
+        };
+
+        // Store all three entries
+        cache.set(key1.clone(), &query1, result.clone()).await;
+        cache.set(key2.clone(), &query2, result.clone()).await;
+        cache.set(key3.clone(), &query3, result.clone()).await;
+
+        cache.memory_cache.run_pending_tasks().await;
+
+        // Verify all three are cached
+        assert!(cache.get(&key1).await.is_some());
+        assert!(cache.get(&key2).await.is_some());
+        assert!(cache.get(&key3).await.is_some());
+
+        // Invalidate tenant_1's "products" collection
+        cache.invalidate_collection("products", "tenant_1").await;
+
+        // tenant_1/products should be invalidated
+        assert!(cache.get(&key1).await.is_none());
+
+        // tenant_2/products should remain (different tenant)
+        assert!(cache.get(&key2).await.is_some());
+
+        // tenant_1/orders should remain (different collection)
+        assert!(cache.get(&key3).await.is_some());
     }
 }

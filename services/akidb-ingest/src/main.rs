@@ -94,7 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Parallel threads: {}", args.parallel);
 
     // Detect file format if not specified
-    let format = args.format.unwrap_or_else(|| detect_format(&args.file));
+    let format = args
+        .format
+        .clone()
+        .unwrap_or_else(|| detect_format(&args.file));
     info!("Detected format: {:?}", format);
 
     // Verify file exists
@@ -164,23 +167,24 @@ async fn ingest_with_parser<P: VectorParser>(
     args: Cli,
     pb: ProgressBar,
 ) -> Result<IngestStats, Box<dyn std::error::Error>> {
-    let pipeline = IngestPipeline::new(
-        args.collection,
-        args.batch_size,
-        args.parallel,
-        args.s3_endpoint,
-        args.s3_access_key,
-        args.s3_secret_key,
-        args.s3_bucket,
-        args.s3_region,
-    )
-    .await?;
+    use crate::pipeline::S3IngestConfig;
+
+    let s3_config = S3IngestConfig {
+        endpoint: args.s3_endpoint,
+        access_key: args.s3_access_key,
+        secret_key: args.s3_secret_key,
+        bucket: args.s3_bucket,
+        region: args.s3_region,
+    };
+
+    let pipeline =
+        IngestPipeline::new(args.collection, args.batch_size, args.parallel, s3_config).await?;
 
     pipeline.ingest(parser, pb).await
 }
 
 /// Detect file format from extension
-fn detect_format(path: &PathBuf) -> FileFormat {
+fn detect_format(path: &std::path::Path) -> FileFormat {
     match path.extension().and_then(|s| s.to_str()) {
         Some("csv") => FileFormat::Csv,
         Some("jsonl") | Some("json") => FileFormat::Jsonl,

@@ -1,18 +1,30 @@
 use crate::parsers::{VectorParser, VectorRecord};
 use crate::IngestStats;
-use akidb_storage::{S3Config, S3StorageBackend, S3WalBackend, StorageBackend};
+use akidb_storage::{S3Config, S3StorageBackend, S3WalBackend};
 use indicatif::ProgressBar;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Ingest pipeline that coordinates parsing, batching, and storage
 pub struct IngestPipeline {
     collection: String,
     batch_size: usize,
     _parallel: usize, // Reserved for future parallel processing
+    #[allow(dead_code)]
     storage: Arc<S3StorageBackend>,
+    #[allow(dead_code)]
     wal: Arc<S3WalBackend>,
+}
+
+/// Configuration for S3 storage
+#[allow(clippy::too_many_arguments)]
+pub struct S3IngestConfig {
+    pub endpoint: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub bucket: String,
+    pub region: String,
 }
 
 impl IngestPipeline {
@@ -20,23 +32,19 @@ impl IngestPipeline {
         collection: String,
         batch_size: usize,
         parallel: usize,
-        s3_endpoint: String,
-        s3_access_key: String,
-        s3_secret_key: String,
-        s3_bucket: String,
-        s3_region: String,
+        s3_config: S3IngestConfig,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create S3 storage backend
-        let s3_config = S3Config {
-            endpoint: s3_endpoint,
-            region: s3_region,
-            access_key: s3_access_key,
-            secret_key: s3_secret_key,
-            bucket: s3_bucket,
+        let storage_config = S3Config {
+            endpoint: s3_config.endpoint,
+            region: s3_config.region,
+            access_key: s3_config.access_key,
+            secret_key: s3_config.secret_key,
+            bucket: s3_config.bucket,
             ..Default::default()
         };
 
-        let storage = Arc::new(S3StorageBackend::new(s3_config)?);
+        let storage = Arc::new(S3StorageBackend::new(storage_config)?);
 
         // Create WAL backend
         let wal = Arc::new(S3WalBackend::builder(storage.clone()).build().await?);
@@ -78,7 +86,7 @@ impl IngestPipeline {
             pb.set_message(format!(
                 "Ingesting batch {}/{} ({} vectors)...",
                 processed / self.batch_size + 1,
-                (total_vectors + self.batch_size - 1) / self.batch_size,
+                total_vectors.div_ceil(self.batch_size),
                 batch.len()
             ));
 

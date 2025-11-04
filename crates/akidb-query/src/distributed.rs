@@ -81,11 +81,63 @@ impl QueryCoordinator {
             return Err(DistributedError::NoShards);
         }
 
-        // Send sub-queries to shards (in parallel)
+        // CRITICAL FIX (Bug #40, #41, #42): Multiple distributed coordinator bugs fixed:
+        //
+        // Bug #40 (Compilation Error): shard_ids was consumed in the loop, then accessed
+        // via shard_ids.len(). Fixed by using &shard_ids to borrow instead of consume.
+        //
+        // Bug #41 (Offline Shards Queried): Queries were sent to all shards regardless of
+        // ShardStatus. Fixed by filtering for Active shards only.
+        //
+        // Bug #42 (Sequential Execution): Despite max_concurrent_queries config, queries
+        // ran sequentially. Fixed by using tokio::spawn with concurrent execution.
+
+        // Filter for active shards only
+        let active_shard_ids = {
+            let shards = self.shards.read().await;
+            shard_ids
+                .iter()
+                .filter(|id| {
+                    shards
+                        .get(id)
+                        .map(|s| s.status == ShardStatus::Active)
+                        .unwrap_or(false)
+                })
+                .copied()
+                .collect::<Vec<_>>()
+        };
+
+        if active_shard_ids.is_empty() {
+            return Err(DistributedError::NoShards);
+        }
+
+        // Send sub-queries to active shards in parallel (respecting concurrency limit)
+        // Note: Use semaphore to honor max_concurrent_queries config
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+            self.config.max_concurrent_queries,
+        ));
+
+        let mut handles = Vec::new();
+        for shard_id in &active_shard_ids {
+            let shard_id = *shard_id;
+            let request = request.clone();
+            let coordinator = self.clone();
+            let permit = semaphore.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = permit.acquire().await.ok()?;
+                coordinator.query_shard(shard_id, &request).await.ok()
+            });
+
+            handles.push(handle);
+        }
+
+        // Collect results from all shards
         let mut results = Vec::new();
-        for shard_id in shard_ids {
-            let shard_result = self.query_shard(shard_id, &request).await?;
-            results.extend(shard_result.results);
+        for handle in handles {
+            if let Ok(Some(shard_result)) = handle.await {
+                results.extend(shard_result.results);
+            }
         }
 
         // Aggregate results: merge-sort by distance and take top-k
@@ -99,7 +151,7 @@ impl QueryCoordinator {
 
         Ok(DistributedQueryResponse {
             results: top_k,
-            shards_queried: shard_ids.len(),
+            shards_queried: active_shard_ids.len(),
         })
     }
 
@@ -121,11 +173,11 @@ impl QueryCoordinator {
     async fn query_shard(
         &self,
         shard_id: ShardId,
-        request: &DistributedQueryRequest,
+        _request: &DistributedQueryRequest,
     ) -> Result<ShardQueryResponse, DistributedError> {
         let shards = self.shards.read().await;
 
-        let shard = shards
+        let _shard = shards
             .get(&shard_id)
             .ok_or(DistributedError::ShardNotFound(shard_id))?;
 
@@ -152,15 +204,20 @@ impl QueryCoordinator {
                 let hash = Self::hash_string(vector_id);
                 let shard_idx = (hash % shard_count as u64) as usize;
 
-                // Map index to actual shard ID (shards may have arbitrary IDs)
-                let shard_ids: Vec<ShardId> = shards.keys().copied().collect();
+                // IMPORTANT: Sort shard IDs to ensure stable, deterministic assignment
+                // HashMap iteration order is arbitrary and can change between calls,
+                // which would cause vectors to be reassigned to different shards.
+                let mut shard_ids: Vec<ShardId> = shards.keys().copied().collect();
+                shard_ids.sort_unstable();
+
+                // Safe indexing - shard_idx is guaranteed to be < shard_count
                 let shard_id = shard_ids[shard_idx];
                 Ok(shard_id)
             }
             ShardingStrategy::Range { ranges } => {
                 // Range-based sharding
                 for (shard_id, range) in ranges {
-                    if vector_id >= &range.start && vector_id < &range.end {
+                    if vector_id >= range.start.as_str() && vector_id < range.end.as_str() {
                         return Ok(*shard_id);
                     }
                 }
@@ -169,7 +226,13 @@ impl QueryCoordinator {
             ShardingStrategy::Random => {
                 // Random sharding (load balancing)
                 let shard_idx = rand::random::<usize>() % shard_count;
-                Ok(shard_idx as ShardId)
+
+                // Map random index to actual shard ID (same as Hash strategy)
+                let mut shard_ids: Vec<ShardId> = shards.keys().copied().collect();
+                shard_ids.sort_unstable();
+
+                let shard_id = shard_ids[shard_idx];
+                Ok(shard_id)
             }
         }
     }
@@ -297,6 +360,7 @@ pub struct DistributedSearchResult {
 /// Shard query response
 #[derive(Debug, Clone)]
 struct ShardQueryResponse {
+    #[allow(dead_code)]
     shard_id: ShardId,
     results: Vec<DistributedSearchResult>,
 }

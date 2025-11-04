@@ -7,13 +7,12 @@
 //! - Span lifecycle management
 
 use opentelemetry::global;
-use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, TracerProvider};
+use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler};
 use opentelemetry_sdk::Resource;
 use std::time::Duration;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// OpenTelemetry configuration
 #[derive(Debug, Clone)]
@@ -86,7 +85,7 @@ pub fn init_telemetry(
     if !config.enabled {
         tracing::info!("OpenTelemetry is disabled (AKIDB_TELEMETRY_ENABLED=false)");
         init_logging_only();
-        return Ok(TelemetryGuard { provider: None });
+        return Ok(TelemetryGuard { enabled: false });
     }
 
     tracing::info!(
@@ -104,27 +103,22 @@ pub fn init_telemetry(
         .with_endpoint(&config.jaeger_endpoint)
         .with_timeout(Duration::from_secs(config.export_timeout_secs));
 
-    // Build tracer provider
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(
-            opentelemetry_otlp::new_pipeline()
-                .tracing()
-                .with_exporter(exporter)
-                .install_batch(opentelemetry_sdk::runtime::Tokio)?,
+    // Build tracer directly from pipeline (modern API)
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(exporter)
+        .with_trace_config(
+            opentelemetry_sdk::trace::config()
+                .with_sampler(Sampler::TraceIdRatioBased(config.sampling_ratio))
+                .with_id_generator(RandomIdGenerator::default())
+                .with_resource(Resource::new(vec![
+                    opentelemetry::KeyValue::new("service.name", config.service_name.clone()),
+                    opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+                ])),
         )
-        .with_sampler(Sampler::TraceIdRatioBased(config.sampling_ratio))
-        .with_id_generator(RandomIdGenerator::default())
-        .with_resource(Resource::new(vec![
-            opentelemetry::KeyValue::new("service.name", config.service_name.clone()),
-            opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-        ]))
-        .build();
-
-    // Set global tracer provider
-    global::set_tracer_provider(provider.clone());
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
     // Create OpenTelemetry tracing layer
-    let tracer = provider.tracer("akidb-api");
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
     // Create env filter for log levels
@@ -146,9 +140,7 @@ pub fn init_telemetry(
 
     tracing::info!("OpenTelemetry initialized successfully");
 
-    Ok(TelemetryGuard {
-        provider: Some(provider),
-    })
+    Ok(TelemetryGuard { enabled: true })
 }
 
 /// Initialize logging without OpenTelemetry (fallback)
@@ -170,20 +162,15 @@ fn init_logging_only() {
 ///
 /// When dropped, this will flush all pending spans and shutdown the tracer provider.
 pub struct TelemetryGuard {
-    provider: Option<TracerProvider>,
+    enabled: bool,
 }
 
 impl Drop for TelemetryGuard {
     fn drop(&mut self) {
-        if let Some(provider) = self.provider.take() {
+        if self.enabled {
             tracing::info!("Shutting down OpenTelemetry...");
 
-            // Shutdown provider (flushes pending spans)
-            if let Err(e) = provider.shutdown() {
-                eprintln!("Error shutting down tracer provider: {}", e);
-            }
-
-            // Shutdown global tracer provider
+            // Shutdown global tracer provider (flushes pending spans)
             global::shutdown_tracer_provider();
 
             tracing::info!("OpenTelemetry shutdown complete");
@@ -200,7 +187,7 @@ mod tests {
         let config = TelemetryConfig::default();
         assert_eq!(config.service_name, "akidb-api");
         assert_eq!(config.jaeger_endpoint, "http://localhost:4317");
-        assert_eq!(config.enabled, true);
+        assert!(config.enabled);
         assert_eq!(config.sampling_ratio, 1.0);
         assert_eq!(config.export_timeout_secs, 10);
     }
@@ -215,7 +202,7 @@ mod tests {
         let config = TelemetryConfig::from_env();
         assert_eq!(config.service_name, "test-service");
         assert_eq!(config.jaeger_endpoint, "http://jaeger:4317");
-        assert_eq!(config.enabled, true);
+        assert!(config.enabled);
         assert_eq!(config.sampling_ratio, 0.5);
 
         // Cleanup
@@ -230,7 +217,7 @@ mod tests {
         std::env::set_var("AKIDB_TELEMETRY_ENABLED", "false");
 
         let config = TelemetryConfig::from_env();
-        assert_eq!(config.enabled, false);
+        assert!(!config.enabled);
 
         std::env::remove_var("AKIDB_TELEMETRY_ENABLED");
     }

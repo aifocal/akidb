@@ -250,11 +250,14 @@ async fn test_e2e_segv1_format_roundtrip() {
     assert_eq!(recovered.vectors.len(), vector_count);
 
     // Verify first and last vectors
-    for i in 0..dimension {
-        assert!((recovered.vectors[0][i] - vectors[0][i]).abs() < 1e-6);
-        assert!(
-            (recovered.vectors[vector_count - 1][i] - vectors[vector_count - 1][i]).abs() < 1e-6
-        );
+    for (recovered_val, original_val) in recovered.vectors[0].iter().zip(&vectors[0]) {
+        assert!((recovered_val - original_val).abs() < 1e-6);
+    }
+    for (recovered_val, original_val) in recovered.vectors[vector_count - 1]
+        .iter()
+        .zip(&vectors[vector_count - 1])
+    {
+        assert!((recovered_val - original_val).abs() < 1e-6);
     }
 
     println!("✅ SEGv1 format roundtrip test passed");

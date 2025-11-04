@@ -1,10 +1,5 @@
 use akidb_core::{QuotaTracker, TenantError};
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -100,15 +95,16 @@ pub async fn inject_quota_state(
     next.run(request).await
 }
 
-/// Storage quota check helper
+/// Storage quota check and increment helper (atomic operation)
 ///
-/// Use this in handlers that write data to check storage quotas.
-pub async fn check_storage_quota(
+/// Use this in handlers that write data to atomically check and increment storage usage.
+/// This prevents race conditions where multiple threads could bypass quota limits.
+pub async fn check_and_increment_storage(
     tracker: &QuotaTracker,
     tenant_id: &str,
     additional_bytes: u64,
 ) -> Result<(), (StatusCode, String)> {
-    match tracker.check_storage_quota(tenant_id, additional_bytes) {
+    match tracker.check_and_increment_storage(tenant_id.to_string(), additional_bytes) {
         Ok(_) => Ok(()),
         Err(TenantError::QuotaExceeded { quota_type }) => Err((
             StatusCode::INSUFFICIENT_STORAGE,
@@ -121,14 +117,15 @@ pub async fn check_storage_quota(
     }
 }
 
-/// Collection quota check helper
+/// Collection quota check and increment helper (atomic operation)
 ///
-/// Use this in handlers that create collections.
-pub async fn check_collection_quota(
+/// Use this in handlers that create collections to atomically check and increment collection count.
+/// This prevents race conditions where multiple threads could bypass quota limits.
+pub async fn check_and_increment_collection(
     tracker: &QuotaTracker,
     tenant_id: &str,
 ) -> Result<(), (StatusCode, String)> {
-    match tracker.check_collection_quota(tenant_id) {
+    match tracker.check_and_increment_collection(tenant_id.to_string()) {
         Ok(_) => Ok(()),
         Err(TenantError::QuotaExceeded { quota_type }) => Err((
             StatusCode::FORBIDDEN,
@@ -141,16 +138,17 @@ pub async fn check_collection_quota(
     }
 }
 
-/// Vector quota check helper
+/// Vector quota check and increment helper (atomic operation)
 ///
-/// Use this in handlers that insert vectors.
-pub async fn check_vector_quota(
+/// Use this in handlers that insert vectors to atomically check and increment vector count.
+/// This prevents race conditions where multiple threads could bypass quota limits.
+pub async fn check_and_increment_vectors(
     tracker: &QuotaTracker,
     tenant_id: &str,
     collection_vectors: u64,
     additional_vectors: u64,
 ) -> Result<(), (StatusCode, String)> {
-    match tracker.check_vector_quota(tenant_id, collection_vectors, additional_vectors) {
+    match tracker.check_and_increment_vectors(tenant_id.to_string(), collection_vectors, additional_vectors) {
         Ok(_) => Ok(()),
         Err(TenantError::QuotaExceeded { quota_type }) => Err((
             StatusCode::FORBIDDEN,
@@ -166,11 +164,7 @@ pub async fn check_vector_quota(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use akidb_core::{TenantQuota, TenantUsage};
-    use axum::{
-        body::Body,
-        http::{Method, Request},
-    };
+    use akidb_core::TenantQuota;
 
     #[test]
     fn test_quota_state_creation() {
@@ -180,85 +174,123 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_storage_quota_ok() {
+    async fn test_check_and_increment_storage_ok() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_storage_bytes = 10000;
+        let quota = TenantQuota {
+            max_storage_bytes: 10000,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
 
-        let result = check_storage_quota(&tracker, tenant_id, 5000).await;
+        let result = check_and_increment_storage(&tracker, tenant_id, 5000).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_check_storage_quota_exceeded() {
+    async fn test_check_and_increment_storage_exceeded() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_storage_bytes = 1000;
+        let quota = TenantQuota {
+            max_storage_bytes: 1000,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
-        tracker.update_storage(tenant_id.to_string(), 800);
 
-        let result = check_storage_quota(&tracker, tenant_id, 300).await;
+        // First increment succeeds
+        let result = check_and_increment_storage(&tracker, tenant_id, 800).await;
+        assert!(result.is_ok());
+
+        // Second increment exceeds quota
+        let result = check_and_increment_storage(&tracker, tenant_id, 300).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().0, StatusCode::INSUFFICIENT_STORAGE);
     }
 
     #[tokio::test]
-    async fn test_check_collection_quota_ok() {
+    async fn test_check_and_increment_collection_ok() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_collections = 10;
+        let quota = TenantQuota {
+            max_collections: 10,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
-        tracker.update_collections(tenant_id.to_string(), 5);
 
-        let result = check_collection_quota(&tracker, tenant_id).await;
+        // Add 5 collections atomically
+        for _ in 0..5 {
+            let result = check_and_increment_collection(&tracker, tenant_id).await;
+            assert!(result.is_ok());
+        }
+
+        // 6th collection should still succeed (5 < 10)
+        let result = check_and_increment_collection(&tracker, tenant_id).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_check_collection_quota_exceeded() {
+    async fn test_check_and_increment_collection_exceeded() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_collections = 5;
+        let quota = TenantQuota {
+            max_collections: 5,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
-        tracker.update_collections(tenant_id.to_string(), 5);
 
-        let result = check_collection_quota(&tracker, tenant_id).await;
+        // Add 5 collections atomically
+        for _ in 0..5 {
+            let result = check_and_increment_collection(&tracker, tenant_id).await;
+            assert!(result.is_ok());
+        }
+
+        // 6th collection should fail (5 == 5, at limit)
+        let result = check_and_increment_collection(&tracker, tenant_id).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
-    async fn test_check_vector_quota_ok() {
+    async fn test_check_and_increment_vectors_ok() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_vectors_per_collection = 10000;
+        let quota = TenantQuota {
+            max_vectors_per_collection: 10000,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
 
-        let result = check_vector_quota(&tracker, tenant_id, 5000, 3000).await;
+        // First increment of 5000 vectors (current=0, adding 5000)
+        let result = check_and_increment_vectors(&tracker, tenant_id, 0, 5000).await;
+        assert!(result.is_ok());
+
+        // Second increment of 3000 vectors (current=5000, adding 3000, total=8000, under limit)
+        let result = check_and_increment_vectors(&tracker, tenant_id, 5000, 3000).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_check_vector_quota_exceeded() {
+    async fn test_check_and_increment_vectors_exceeded() {
         let tracker = QuotaTracker::new();
         let tenant_id = "tenant_test";
 
-        let mut quota = TenantQuota::default();
-        quota.max_vectors_per_collection = 10000;
+        let quota = TenantQuota {
+            max_vectors_per_collection: 10000,
+            ..Default::default()
+        };
         tracker.set_quota(tenant_id.to_string(), quota);
 
-        let result = check_vector_quota(&tracker, tenant_id, 9000, 2000).await;
+        // First increment of 9000 vectors (current=0, adding 9000)
+        let result = check_and_increment_vectors(&tracker, tenant_id, 0, 9000).await;
+        assert!(result.is_ok());
+
+        // Second increment of 2000 vectors would exceed (current=9000, adding 2000 = 11000 > 10000)
+        let result = check_and_increment_vectors(&tracker, tenant_id, 9000, 2000).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().0, StatusCode::FORBIDDEN);
     }
@@ -271,13 +303,15 @@ mod tests {
         // Set unlimited quota (all zeros)
         tracker.set_quota(tenant_id.to_string(), TenantQuota::unlimited());
 
-        // All checks should pass
-        assert!(check_storage_quota(&tracker, tenant_id, u64::MAX / 2)
+        // All atomic operations should pass with unlimited quota
+        assert!(check_and_increment_storage(&tracker, tenant_id, u64::MAX / 2)
             .await
             .is_ok());
-        assert!(check_collection_quota(&tracker, tenant_id).await.is_ok());
+        assert!(check_and_increment_collection(&tracker, tenant_id)
+            .await
+            .is_ok());
         assert!(
-            check_vector_quota(&tracker, tenant_id, u64::MAX / 2, u64::MAX / 4)
+            check_and_increment_vectors(&tracker, tenant_id, 0, u64::MAX / 4)
                 .await
                 .is_ok()
         );

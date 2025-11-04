@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::debug;
 
 /// Shared tenant store state
 pub type TenantStoreState = Arc<dyn TenantStore>;
@@ -67,9 +67,18 @@ pub struct ErrorResponse {
     pub message: String,
 }
 
-impl IntoResponse for akidb_core::TenantError {
+/// Newtype wrapper to implement IntoResponse for TenantError (orphan rule workaround)
+pub struct TenantErrorResponse(pub akidb_core::TenantError);
+
+impl From<akidb_core::TenantError> for TenantErrorResponse {
+    fn from(err: akidb_core::TenantError) -> Self {
+        TenantErrorResponse(err)
+    }
+}
+
+impl IntoResponse for TenantErrorResponse {
     fn into_response(self) -> Response {
-        let (status, error_type) = match &self {
+        let (status, error_type) = match &self.0 {
             akidb_core::TenantError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             akidb_core::TenantError::AlreadyExists(_) => (StatusCode::CONFLICT, "already_exists"),
             akidb_core::TenantError::QuotaExceeded { .. } => {
@@ -88,7 +97,7 @@ impl IntoResponse for akidb_core::TenantError {
 
         let error_response = ErrorResponse {
             error: error_type.to_string(),
-            message: self.to_string(),
+            message: self.0.to_string(),
         };
 
         (status, Json(error_response)).into_response()

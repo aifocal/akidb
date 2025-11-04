@@ -132,6 +132,10 @@ pub struct S3WalBackend {
     buffers: Arc<RwLock<HashMap<WalStreamId, Vec<WalEntry>>>>,
     // Initialization guard: ensures recover() was called before use
     initialized: Arc<OnceCell<()>>,
+    // Per-stream locks to serialize persist_entries operations
+    // CRITICAL: Prevents read-modify-write races when multiple threads
+    // call sync() concurrently for the same stream
+    persist_locks: Arc<RwLock<HashMap<WalStreamId, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 /// Builder for S3WalBackend that ensures proper initialization
@@ -205,6 +209,7 @@ impl S3WalBackend {
             lsn_counters: Arc::new(RwLock::new(HashMap::new())),
             buffers: Arc::new(RwLock::new(HashMap::new())),
             initialized: Arc::new(OnceCell::new()),
+            persist_locks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -334,7 +339,29 @@ impl WalAppender for S3WalBackend {
             return Ok(());
         }
 
-        // Persist to S3
+        // CRITICAL FIX (Bug #28): Acquire per-stream lock to serialize persist_entries
+        // operations and prevent read-modify-write races on S3.
+        //
+        // Without this lock, concurrent sync() calls for the same stream could:
+        // 1. Thread A loads existing WAL from S3 → []
+        // 2. Thread B loads existing WAL from S3 → [] (before A writes)
+        // 3. Thread A writes [entries A] to S3
+        // 4. Thread B writes [entries B] to S3 (OVERWRITES A's write)
+        // 5. Result: Entries A are permanently lost
+        //
+        // This lock ensures only one thread performs load-modify-write for a stream.
+        let persist_lock = {
+            let mut locks = self.persist_locks.write();
+            locks
+                .entry(stream)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+
+        // Acquire lock before persist (ensures serialized access to S3 per stream)
+        let _guard = persist_lock.lock().await;
+
+        // Persist to S3 (now protected from concurrent writes)
         self.persist_entries(stream, &entries).await?;
 
         info!(
@@ -402,7 +429,7 @@ impl WalReplayer for S3WalBackend {
         let entries = self.load_entries(stream).await?;
 
         let mut batch = Vec::new();
-        let mut current_bytes = 0;
+        let mut current_bytes: usize = 0;
 
         for entry in entries {
             // Skip entries with LSN <= since_lsn
@@ -416,7 +443,8 @@ impl WalReplayer for S3WalBackend {
                 .map_err(|e| Error::Storage(format!("Failed to serialize entry: {}", e)))?;
 
             let entry_size = data.len();
-            if current_bytes + entry_size > max_bytes && !batch.is_empty() {
+            // Use saturating_add to prevent integer overflow
+            if current_bytes.saturating_add(entry_size) > max_bytes && !batch.is_empty() {
                 break;
             }
 

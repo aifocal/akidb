@@ -117,6 +117,11 @@ async fn load_collection(
     let mut total_vectors_loaded = 0;
     let mut global_vector_index: usize = 0; // Track global index across all segments
 
+    // Track primary_key → doc_id mapping from persisted segments
+    // This will be used during WAL replay to handle Delete/UpsertPayload operations
+    let mut persisted_keys_to_doc_id: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
+
     for segment_desc in &manifest.segments {
         debug!(
             "Loading segment {} ({} records expected)",
@@ -170,6 +175,9 @@ async fn load_collection(
                     .map(|components| QueryVector { components })
                     .collect();
 
+                // Clone primary_keys before moving into batch, as we need them for mapping
+                let primary_keys_for_mapping = primary_keys.clone();
+
                 // Add batch to index
                 let batch = IndexBatch {
                     primary_keys,
@@ -186,6 +194,15 @@ async fn load_collection(
                     let doc_id = doc_id_start + idx as u32;
                     metadata_store.index_metadata(name, doc_id, payload).await?;
                 }
+
+                // Store primary_key → doc_id mapping for later use in WAL replay
+                // This ensures Delete/UpsertPayload operations can find persisted vectors
+                persisted_keys_to_doc_id.extend(
+                    primary_keys_for_mapping
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, key)| (key, doc_id_start + idx as u32)),
+                );
 
                 total_vectors_loaded += vector_count;
 
@@ -212,11 +229,34 @@ async fn load_collection(
         manifest.segments.len()
     );
 
-    // Load persisted WAL stream ID or create new one for backward compatibility
-    let wal_stream_id = descriptor
-        .wal_stream_id
-        .map(WalStreamId::from_uuid)
-        .unwrap_or_default();
+    // CRITICAL FIX (Bug #39): Use deterministic WAL stream ID for legacy collections
+    //
+    // ISSUE: Previous code used .unwrap_or_default() which creates a RANDOM UUID on each
+    // restart for legacy collections (created before wal_stream_id was added). This means:
+    // - Restart 1: collection gets fresh UUID "abc-123", WAL replay looks for "abc-123" (empty)
+    // - Restart 2: collection gets fresh UUID "def-456", WAL replay looks for "def-456" (empty)
+    // - Original WAL entries under old UUID are NEVER replayed → DATA LOSS
+    //
+    // FIX: For legacy collections (wal_stream_id = None), create DETERMINISTIC UUID based
+    // on collection name. This ensures the same collection always uses the same WAL stream
+    // across restarts, allowing pending WAL entries to be replayed.
+    let wal_stream_id = if let Some(persisted_uuid) = descriptor.wal_stream_id {
+        // Modern collection: Use persisted WAL stream ID
+        WalStreamId::from_uuid(persisted_uuid)
+    } else {
+        // Legacy collection: Create deterministic UUID from collection name
+        // This ensures consistency across restarts for WAL replay
+        let deterministic_uuid = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, name.as_bytes());
+
+        warn!(
+            "Collection '{}' has no persisted WAL stream ID (legacy collection). \
+             Using deterministic UUID {} based on collection name for WAL replay. \
+             Consider migrating to persist WAL stream ID in collection descriptor.",
+            name, deterministic_uuid
+        );
+
+        WalStreamId::from_uuid(deterministic_uuid)
+    };
 
     debug!("Using WAL stream ID for '{}': {}", name, wal_stream_id.0);
 
@@ -237,8 +277,10 @@ async fn load_collection(
         let mut total_replayed = 0;
 
         // Maintain primary_key → doc_id mapping for Delete/Upsert operations
+        // IMPORTANT: Initialize with keys from persisted segments to enable
+        // Delete/UpsertPayload operations on already-persisted vectors after restart
         let mut key_to_doc_id: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
+            persisted_keys_to_doc_id.clone();
 
         loop {
             // Fetch next batch starting from last processed LSN
@@ -333,7 +375,7 @@ async fn load_collection(
                         if let Some(&doc_id) = key_to_doc_id.get(&primary_key) {
                             // Remove from index
                             index_provider
-                                .remove(&index_handle, &[primary_key.clone()])
+                                .remove(&index_handle, std::slice::from_ref(&primary_key))
                                 .await?;
 
                             // Remove from metadata store

@@ -12,6 +12,7 @@ akidb-core = { path = "../../crates/akidb-core" }
 akidb-index = { path = "../../crates/akidb-index" }
 akidb-query = { path = "../../crates/akidb-query" }
 akidb-storage = { path = "../../crates/akidb-storage" }
+object_store = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
@@ -30,3 +31,13 @@ futures = { workspace = true }
 # Phase 3 M4: Production Monitoring
 prometheus = { workspace = true }
 hyper = { workspace = true }
+
+# Security: JWT validation for Bug #51 fix
+jsonwebtoken = "9"
+subtle = { workspace = true }
+
+# Telemetry and observability
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }

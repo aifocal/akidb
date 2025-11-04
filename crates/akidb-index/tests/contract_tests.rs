@@ -298,46 +298,110 @@ async fn contract_dimension_validation() {
     }
 }
 
-/// Contract Test 6: Both providers should reject duplicate keys
+/// Contract Test 6: HNSW should reject duplicate keys
+///
+/// NOTE: Native provider implements upsert semantics (Bug #44 fix) for idempotency
+/// required by WAL replay and client retries. HNSW still rejects duplicates.
+/// This is a known behavioral difference between providers.
 #[tokio::test]
 async fn contract_reject_duplicate_keys() {
-    for (name, provider) in create_providers() {
-        let request = create_build_request(2, DistanceMetric::L2);
-        let handle = provider
-            .build(request)
-            .await
-            .expect(&format!("{} should build index", name));
+    // Only test HNSW - Native implements upsert (tested separately)
+    let provider = Box::new(HnswIndexProvider::new(Default::default()));
+    let request = create_build_request(2, DistanceMetric::L2);
+    let handle = provider
+        .build(request)
+        .await
+        .expect("HNSW should build index");
 
-        // Add initial batch
-        let batch1 = IndexBatch {
-            primary_keys: vec!["key1".to_string()],
-            vectors: vec![QueryVector {
-                components: vec![1.0, 0.0],
-            }],
-            payloads: vec![json!({"id": 1})],
-        };
+    // Add initial batch
+    let batch1 = IndexBatch {
+        primary_keys: vec!["key1".to_string()],
+        vectors: vec![QueryVector {
+            components: vec![1.0, 0.0],
+        }],
+        payloads: vec![json!({"id": 1})],
+    };
 
-        provider
-            .add_batch(&handle, batch1)
-            .await
-            .expect(&format!("{} should add first batch", name));
+    provider
+        .add_batch(&handle, batch1)
+        .await
+        .expect("HNSW should add first batch");
 
-        // Try to add duplicate key
-        let batch2 = IndexBatch {
-            primary_keys: vec!["key1".to_string()], // Duplicate!
-            vectors: vec![QueryVector {
-                components: vec![0.0, 1.0],
-            }],
-            payloads: vec![json!({"id": 2})],
-        };
+    // Try to add duplicate key
+    let batch2 = IndexBatch {
+        primary_keys: vec!["key1".to_string()], // Duplicate!
+        vectors: vec![QueryVector {
+            components: vec![0.0, 1.0],
+        }],
+        payloads: vec![json!({"id": 2})],
+    };
 
-        let result = provider.add_batch(&handle, batch2).await;
-        assert!(
-            result.is_err(),
-            "{} should reject duplicate primary keys",
-            name
-        );
-    }
+    let result = provider.add_batch(&handle, batch2).await;
+    assert!(result.is_err(), "HNSW should reject duplicate primary keys");
+}
+
+/// Contract Test 6b: Native should implement upsert semantics for idempotency
+///
+/// Bug #44 fix: Native provider implements upsert (not rejection) for duplicate keys
+/// to support idempotent WAL replay and client retries.
+#[tokio::test]
+async fn contract_native_upsert_behavior() {
+    let provider = Box::new(NativeIndexProvider::new());
+    let request = create_build_request(2, DistanceMetric::L2);
+    let handle = provider
+        .build(request)
+        .await
+        .expect("Native should build index");
+
+    // Add initial batch
+    let batch1 = IndexBatch {
+        primary_keys: vec!["key1".to_string()],
+        vectors: vec![QueryVector {
+            components: vec![1.0, 0.0],
+        }],
+        payloads: vec![json!({"id": 1})],
+    };
+
+    provider
+        .add_batch(&handle, batch1)
+        .await
+        .expect("Native should add first batch");
+
+    // Add duplicate key with different vector (upsert)
+    let batch2 = IndexBatch {
+        primary_keys: vec!["key1".to_string()], // Duplicate - should upsert
+        vectors: vec![QueryVector {
+            components: vec![0.0, 1.0],
+        }],
+        payloads: vec![json!({"id": 2})],
+    };
+
+    let result = provider.add_batch(&handle, batch2).await;
+    assert!(
+        result.is_ok(),
+        "Native should accept duplicate keys (upsert semantics)"
+    );
+
+    // Verify the vector was updated, not duplicated
+    let (vectors, payloads) = provider
+        .extract_for_persistence(&handle)
+        .expect("Should extract data");
+
+    assert_eq!(
+        vectors.len(),
+        1,
+        "Should have exactly 1 vector (upserted, not duplicated)"
+    );
+    assert_eq!(
+        vectors[0],
+        vec![0.0, 1.0],
+        "Vector should be updated to new value"
+    );
+    assert_eq!(
+        payloads[0],
+        json!({"id": 2}),
+        "Payload should be updated to new value"
+    );
 }
 
 /// Contract Test 7: Both providers should validate batch consistency

@@ -126,7 +126,29 @@ pub struct ViewDefinition {
 }
 
 impl ViewDefinition {
+    /// Create a TopK view definition with validation
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - query_vector is empty
+    /// - k is 0
+    /// - query_vector contains NaN or Inf values
     pub fn top_k(query_vector: Vec<f32>, k: usize) -> Self {
+        // CRITICAL: Validate input parameters
+        assert!(!query_vector.is_empty(), "Query vector cannot be empty");
+        assert!(k > 0, "k must be greater than 0");
+
+        // CRITICAL: Validate no NaN or Inf values
+        for (idx, &value) in query_vector.iter().enumerate() {
+            assert!(
+                value.is_finite(),
+                "Query vector contains invalid value at index {}: {} (NaN or Inf not allowed)",
+                idx,
+                value
+            );
+        }
+
         Self {
             query_vector: Some(query_vector),
             k: Some(k),
@@ -135,7 +157,15 @@ impl ViewDefinition {
         }
     }
 
+    /// Create a Filtered view definition with validation
+    ///
+    /// # Panics
+    ///
+    /// Panics if k is 0
     pub fn filtered(filters: HashMap<String, String>, k: usize) -> Self {
+        // CRITICAL: Validate k > 0
+        assert!(k > 0, "k must be greater than 0");
+
         Self {
             query_vector: None,
             k: Some(k),

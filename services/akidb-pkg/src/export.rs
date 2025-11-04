@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 /// Export a collection to .akipkg format
+#[allow(clippy::too_many_arguments)]
 pub async fn export_package(
     collection: String,
     output: PathBuf,
@@ -36,7 +37,7 @@ pub async fn export_package(
         0,   // total_segments
         768, // vector_dim (would be from collection descriptor)
         "Cosine".to_string(),
-    );
+    )?;
 
     // Write manifest to file (simplified)
     let manifest_json = manifest.to_json()?;

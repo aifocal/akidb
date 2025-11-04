@@ -113,21 +113,16 @@ impl Default for TenantMetadata {
 }
 
 /// Tenant status
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TenantStatus {
     /// Active and operational
+    #[default]
     Active,
     /// Suspended (quota exceeded, payment issue)
     Suspended,
     /// Soft deleted (can be restored)
     Deleted,
-}
-
-impl Default for TenantStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 /// Tenant descriptor
@@ -267,7 +262,7 @@ impl TenantDescriptor {
         if self.quotas.max_storage_bytes == 0 {
             return false; // Unlimited
         }
-        self.usage.storage_bytes >= self.quotas.max_storage_bytes
+        self.usage.storage_bytes > self.quotas.max_storage_bytes
     }
 
     /// Check if collection quota is exceeded
@@ -275,7 +270,7 @@ impl TenantDescriptor {
         if self.quotas.max_collections == 0 {
             return false; // Unlimited
         }
-        self.usage.collection_count >= self.quotas.max_collections
+        self.usage.collection_count > self.quotas.max_collections
     }
 
     /// Check if vector quota is exceeded for a collection
@@ -283,7 +278,7 @@ impl TenantDescriptor {
         if self.quotas.max_vectors_per_collection == 0 {
             return false; // Unlimited
         }
-        collection_vectors >= self.quotas.max_vectors_per_collection
+        collection_vectors > self.quotas.max_vectors_per_collection
     }
 
     /// Update resource usage
@@ -306,6 +301,7 @@ impl TenantDescriptor {
 pub mod api_key {
     use rand::Rng;
     use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
 
     /// Generate a new API key
     ///
@@ -327,9 +323,24 @@ pub mod api_key {
         format!("{:x}", hasher.finalize())
     }
 
-    /// Verify an API key against a hash
+    /// Verify an API key against a hash using constant-time comparison
+    ///
+    /// This prevents timing attacks by ensuring the comparison takes
+    /// the same amount of time regardless of where the mismatch occurs.
     pub fn verify(api_key: &str, api_key_hash: &str) -> bool {
-        hash(api_key) == api_key_hash
+        let computed_hash = hash(api_key);
+
+        // Convert to bytes for constant-time comparison
+        let computed_bytes = computed_hash.as_bytes();
+        let stored_bytes = api_key_hash.as_bytes();
+
+        // Return false if lengths don't match (still constant-time for same-length strings)
+        if computed_bytes.len() != stored_bytes.len() {
+            return false;
+        }
+
+        // Constant-time comparison
+        computed_bytes.ct_eq(stored_bytes).into()
     }
 }
 
@@ -383,15 +394,26 @@ mod tests {
     fn test_quota_checks() {
         let mut tenant = TenantDescriptor::new("Test".to_string(), Some(TenantQuota::default()));
 
-        // Storage quota
+        // Storage quota - at limit should be allowed
+        tenant.usage.storage_bytes = tenant.quotas.max_storage_bytes;
+        assert!(!tenant.is_storage_quota_exceeded());
+
+        // Storage quota - over limit should be exceeded
         tenant.usage.storage_bytes = tenant.quotas.max_storage_bytes + 1;
         assert!(tenant.is_storage_quota_exceeded());
 
-        // Collection quota
+        // Collection quota - at limit should be allowed
+        tenant.usage.collection_count = tenant.quotas.max_collections;
+        assert!(!tenant.is_collection_quota_exceeded());
+
+        // Collection quota - over limit should be exceeded
         tenant.usage.collection_count = tenant.quotas.max_collections + 1;
         assert!(tenant.is_collection_quota_exceeded());
 
-        // Vector quota
+        // Vector quota - at limit should be allowed
+        assert!(!tenant.is_vector_quota_exceeded(tenant.quotas.max_vectors_per_collection));
+
+        // Vector quota - over limit should be exceeded
         assert!(tenant.is_vector_quota_exceeded(tenant.quotas.max_vectors_per_collection + 1));
     }
 
