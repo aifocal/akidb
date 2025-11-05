@@ -34,19 +34,30 @@ impl TenantEnforcementState {
 
     /// Add or update a tenant (for testing/demo)
     pub fn upsert_tenant(&self, tenant: TenantDescriptor) {
-        self.tenants
-            .write()
-            .expect("Tenant lock poisoned")
-            .insert(tenant.tenant_id.clone(), tenant);
+        // BUGFIX (Bug #26): Handle poisoned lock gracefully instead of panicking.
+        // If another thread panicked while holding this lock, we can still recover
+        // the data by using into_inner().
+        let mut guard = match self.tenants.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Tenant lock was poisoned during upsert, recovering data...");
+                poisoned.into_inner()
+            }
+        };
+        guard.insert(tenant.tenant_id.clone(), tenant);
     }
 
     /// Get tenant by ID
     pub fn get_tenant(&self, tenant_id: &str) -> Option<TenantDescriptor> {
-        self.tenants
-            .read()
-            .expect("Tenant lock poisoned")
-            .get(tenant_id)
-            .cloned()
+        // BUGFIX (Bug #26): Handle poisoned lock gracefully instead of panicking
+        let guard = match self.tenants.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Tenant lock was poisoned during get, recovering data...");
+                poisoned.into_inner()
+            }
+        };
+        guard.get(tenant_id).cloned()
     }
 
     /// Check if tenant is active
