@@ -3,10 +3,33 @@ use ring::signature::{UnparsedPublicKey, ED25519};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 use tracing::{info, warn};
 use zstd::Decoder;
+
+// Security limits
+const MAX_FILE_SIZE_BYTES: u64 = 1_000_000_000; // 1GB per file
+const MAX_TOTAL_EXTRACTED_BYTES: u64 = 10_000_000_000; // 10GB total
+
+/// Validate TAR entry path for security (prevent path traversal attacks)
+fn validate_tar_path(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let path_str = path.to_string_lossy();
+
+    // Reject absolute paths
+    if path.is_absolute() {
+        return Err(format!("Absolute paths not allowed in archives: {}", path_str).into());
+    }
+
+    // Reject paths with parent directory references (..)
+    for component in path.components() {
+        if component == std::path::Component::ParentDir {
+            return Err(format!("Path traversal detected in archive: {}", path_str).into());
+        }
+    }
+
+    Ok(())
+}
 
 /// Verification result
 pub struct VerificationResult {
@@ -66,13 +89,41 @@ pub async fn verify_package(
     let mut manifest_opt: Option<PackageManifest> = None;
     let mut checksums_opt: Option<Vec<(usize, String)>> = None;
     let mut segment_data_map = std::collections::HashMap::new();
+    let mut total_extracted_bytes: u64 = 0;
 
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         let path = entry.path()?.to_path_buf();
         let path_str = path.to_string_lossy().to_string();
 
-        info!("Extracting: {}", path_str);
+        // SECURITY: Validate path to prevent path traversal attacks
+        validate_tar_path(&path)?;
+
+        let file_size = entry.size();
+
+        // SECURITY: Check individual file size limit
+        if file_size > MAX_FILE_SIZE_BYTES {
+            return Err(format!(
+                "File {} exceeds maximum size limit ({} > {} bytes)",
+                path_str, file_size, MAX_FILE_SIZE_BYTES
+            )
+            .into());
+        }
+
+        // SECURITY: Check total extracted size (zip bomb protection)
+        total_extracted_bytes = total_extracted_bytes
+            .checked_add(file_size)
+            .ok_or("Total extracted size overflow")?;
+
+        if total_extracted_bytes > MAX_TOTAL_EXTRACTED_BYTES {
+            return Err(format!(
+                "Total extracted size exceeds limit ({} > {} bytes). Possible zip bomb attack.",
+                total_extracted_bytes, MAX_TOTAL_EXTRACTED_BYTES
+            )
+            .into());
+        }
+
+        info!("Extracting: {} ({} bytes)", path_str, file_size);
 
         // Read entry data
         let mut data = Vec::new();
@@ -283,7 +334,7 @@ mod tests {
     #[test]
     fn test_hex_decode() {
         let hex_str = "48656c6c6f"; // "Hello" in hex
-        let decoded = hex::decode(hex_str).unwrap();
+        let decoded = hex::decode(hex_str).expect("Valid hex string should decode");
         assert_eq!(decoded, b"Hello");
     }
 
