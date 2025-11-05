@@ -212,6 +212,11 @@ pub struct IngestStats {
 
 impl IngestStats {
     pub fn throughput(&self) -> f64 {
+        // BUGFIX: Handle division by zero if duration is extremely small
+        // Can occur in tests or when ingesting 0 vectors
+        if self.duration_secs == 0.0 {
+            return 0.0;
+        }
         self.total_vectors as f64 / self.duration_secs
     }
 }
