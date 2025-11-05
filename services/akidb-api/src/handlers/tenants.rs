@@ -191,6 +191,22 @@ pub async fn list_tenants(
         query.offset, query.limit
     );
 
+    // BUGFIX (Bug #23): Validate pagination parameters
+    // limit=0 returns empty results but wastes DB query
+    // limit > 1000 could cause performance issues or OOM
+    if query.limit == 0 {
+        return Err(akidb_core::TenantError::Validation(
+            "limit must be greater than 0".to_string(),
+        ));
+    }
+
+    if query.limit > 1000 {
+        return Err(akidb_core::TenantError::Validation(format!(
+            "limit too large (max 1000, got {})",
+            query.limit
+        )));
+    }
+
     let tenants = store.list_tenants(query.offset, query.limit).await?;
     let total = tenants.len();
 

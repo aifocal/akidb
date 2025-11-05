@@ -591,6 +591,16 @@ impl<'a> VectorStore<'a> {
         // Calculate selectivity and required oversampling
         let count = self.vectors.len();
         let filtered_count = filter.len() as usize;
+
+        // BUGFIX (Bug #24): Handle empty index to prevent division by zero
+        // If count=0, selectivity would be 0/0 = NaN, causing incorrect oversample_k
+        if count == 0 {
+            return Ok(SearchResult {
+                query: query.clone(),
+                neighbors: vec![],
+            });
+        }
+
         let selectivity = filtered_count as f64 / count as f64;
 
         // Dynamic oversampling calculation
