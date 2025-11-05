@@ -103,36 +103,57 @@ impl RbacEnforcementState {
 
     /// Add a user (for testing/demo)
     pub fn add_user(&self, user: User) {
-        self.users
-            .write()
-            .expect("RBAC user lock poisoned")
-            .insert(user.user_id.clone(), user);
+        // BUGFIX: Handle poisoned lock gracefully instead of panicking
+        // If lock is poisoned, clear it and continue (poisoned data is acceptable for demo/test)
+        match self.users.write() {
+            Ok(mut guard) => {
+                guard.insert(user.user_id.clone(), user);
+            }
+            Err(poisoned) => {
+                warn!("RBAC user lock was poisoned, recovering...");
+                let mut guard = poisoned.into_inner();
+                guard.insert(user.user_id.clone(), user);
+            }
+        }
     }
 
     /// Add a role (for testing/demo)
     pub fn add_role(&self, role: Role) {
-        self.roles
-            .write()
-            .expect("RBAC role lock poisoned")
-            .insert(role.role_id.clone(), role);
+        // BUGFIX: Handle poisoned lock gracefully instead of panicking
+        match self.roles.write() {
+            Ok(mut guard) => {
+                guard.insert(role.role_id.clone(), role);
+            }
+            Err(poisoned) => {
+                warn!("RBAC role lock was poisoned, recovering...");
+                let mut guard = poisoned.into_inner();
+                guard.insert(role.role_id.clone(), role);
+            }
+        }
     }
 
     /// Get user by ID
     pub fn get_user(&self, user_id: &str) -> Option<User> {
-        self.users
-            .read()
-            .expect("RBAC user lock poisoned")
-            .get(user_id)
-            .cloned()
+        // BUGFIX: Handle poisoned lock gracefully instead of panicking
+        match self.users.read() {
+            Ok(guard) => guard.get(user_id).cloned(),
+            Err(poisoned) => {
+                warn!("RBAC user lock was poisoned, recovering...");
+                poisoned.into_inner().get(user_id).cloned()
+            }
+        }
     }
 
     /// Get role by ID
     pub fn get_role(&self, role_id: &str) -> Option<Role> {
-        self.roles
-            .read()
-            .expect("RBAC role lock poisoned")
-            .get(role_id)
-            .cloned()
+        // BUGFIX: Handle poisoned lock gracefully instead of panicking
+        match self.roles.read() {
+            Ok(guard) => guard.get(role_id).cloned(),
+            Err(poisoned) => {
+                warn!("RBAC role lock was poisoned, recovering...");
+                poisoned.into_inner().get(role_id).cloned()
+            }
+        }
     }
 
     /// Get user permissions by resolving all roles

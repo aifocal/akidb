@@ -481,11 +481,30 @@ impl<'a> VectorStore<'a> {
             .collect();
 
         // Sort by score (ascending for L2/Cosine, descending for Dot)
+        // BUGFIX: Handle NaN values correctly - NaN should sort to end, not as Equal
         scored.sort_by(|a, b| {
             if matches!(self.distance, DistanceMetric::Dot) {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                // For Dot product (higher is better), NaN goes to end
+                b.1.partial_cmp(&a.1).unwrap_or_else(|| {
+                    if a.1.is_nan() && b.1.is_nan() {
+                        std::cmp::Ordering::Equal
+                    } else if a.1.is_nan() {
+                        std::cmp::Ordering::Greater // a is worse (goes to end)
+                    } else {
+                        std::cmp::Ordering::Less // b is worse (goes to end)
+                    }
+                })
             } else {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                // For L2/Cosine (lower is better), NaN goes to end
+                a.1.partial_cmp(&b.1).unwrap_or_else(|| {
+                    if a.1.is_nan() && b.1.is_nan() {
+                        std::cmp::Ordering::Equal
+                    } else if a.1.is_nan() {
+                        std::cmp::Ordering::Greater // a is worse (goes to end)
+                    } else {
+                        std::cmp::Ordering::Less // b is worse (goes to end)
+                    }
+                })
             }
         });
 
@@ -527,8 +546,19 @@ impl<'a> VectorStore<'a> {
             })
             .collect();
 
-        // Sort by score
-        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by score (ascending for L2/Cosine)
+        // BUGFIX: Handle NaN values correctly - NaN should sort to end, not as Equal
+        scored.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1).unwrap_or_else(|| {
+                if a.1.is_nan() && b.1.is_nan() {
+                    std::cmp::Ordering::Equal
+                } else if a.1.is_nan() {
+                    std::cmp::Ordering::Greater // a goes to end
+                } else {
+                    std::cmp::Ordering::Less // b goes to end
+                }
+            })
+        });
 
         // Take top_k results
         let neighbors: Vec<ScoredPoint> = scored
@@ -561,6 +591,16 @@ impl<'a> VectorStore<'a> {
         // Calculate selectivity and required oversampling
         let count = self.vectors.len();
         let filtered_count = filter.len() as usize;
+
+        // BUGFIX (Bug #24): Handle empty index to prevent division by zero
+        // If count=0, selectivity would be 0/0 = NaN, causing incorrect oversample_k
+        if count == 0 {
+            return Ok(SearchResult {
+                query: query.clone(),
+                neighbors: vec![],
+            });
+        }
+
         let selectivity = filtered_count as f64 / count as f64;
 
         // Dynamic oversampling calculation

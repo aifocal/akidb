@@ -21,7 +21,17 @@ impl LogSequence {
     }
 
     pub fn next(&self) -> Self {
-        Self(self.0.saturating_add(1))
+        // BUGFIX: Check for u64::MAX overflow to prevent duplicate LSNs
+        // If LSN reaches MAX, wrapping would cause data corruption in WAL
+        if self.0 == u64::MAX {
+            panic!(
+                "LSN overflow: reached u64::MAX ({}). \
+                 Cannot allocate more log sequence numbers. \
+                 This indicates an extremely long-running WAL stream.",
+                u64::MAX
+            );
+        }
+        Self(self.0 + 1)
     }
 
     pub fn value(&self) -> u64 {
@@ -394,6 +404,8 @@ impl WalReplayer for S3WalBackend {
             .collect();
 
         let record_count = filtered.len() as u64;
+        // BUGFIX: Use saturating_add to prevent u64 overflow when summing entry sizes
+        // With billions of large WAL entries, sum() could overflow and wrap around
         let total_bytes: u64 = filtered
             .iter()
             .map(|entry| {
@@ -401,7 +413,7 @@ impl WalReplayer for S3WalBackend {
                     .map(|v| v.len() as u64)
                     .unwrap_or(0)
             })
-            .sum();
+            .fold(0u64, |acc, size| acc.saturating_add(size));
 
         debug!(
             "Replayed {} records ({} bytes) from stream {}",
@@ -495,11 +507,12 @@ impl WalRecovery for S3WalBackend {
         }
 
         // Calculate total entries
+        // BUGFIX: Use saturating_add to prevent u64 overflow when summing LSNs
         stats.total_entries = stats
             .last_lsn_per_stream
             .values()
             .map(|lsn| lsn.value())
-            .sum();
+            .fold(0u64, |acc, lsn_val| acc.saturating_add(lsn_val));
 
         info!(
             "WAL recovery completed: {} streams, {} total entries",

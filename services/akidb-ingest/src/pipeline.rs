@@ -113,11 +113,18 @@ impl IngestPipeline {
         let duration = start_time.elapsed();
         let duration_secs = duration.as_secs_f64();
 
+        // BUGFIX: Handle division by zero if duration is extremely small
+        let throughput = if duration_secs > 0.0 {
+            total_vectors as f64 / duration_secs
+        } else {
+            0.0
+        };
+
         pb.finish_with_message(format!(
             "✅ Completed: {} vectors in {:.2}s ({:.0} vec/sec)",
             total_vectors,
             duration_secs,
-            total_vectors as f64 / duration_secs
+            throughput
         ));
 
         Ok(IngestStats {

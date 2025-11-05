@@ -144,11 +144,12 @@ fn batch_query_benchmark(c: &mut Criterion) {
                         });
                     }
 
-                    *query_count.lock().unwrap() += batch_size;
+                    // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+                    *query_count.lock().unwrap_or_else(|e| e.into_inner()) += batch_size;
                 });
 
                 let elapsed = start_time.elapsed().as_secs_f64();
-                let total_queries = *query_count.lock().unwrap();
+                let total_queries = *query_count.lock().unwrap_or_else(|e| e.into_inner());
                 let qps = total_queries as f64 / elapsed;
 
                 println!(
@@ -195,11 +196,12 @@ fn batch_query_benchmark(c: &mut Criterion) {
                         }
                     });
 
-                    *query_count.lock().unwrap() += batch_size;
+                    // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+                    *query_count.lock().unwrap_or_else(|e| e.into_inner()) += batch_size;
                 });
 
                 let elapsed = start_time.elapsed().as_secs_f64();
-                let total_queries = *query_count.lock().unwrap();
+                let total_queries = *query_count.lock().unwrap_or_else(|e| e.into_inner());
                 let qps = total_queries as f64 / elapsed;
 
                 println!(

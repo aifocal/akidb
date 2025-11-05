@@ -83,7 +83,8 @@ fn cached_index_metrics(
     let key = (size, index_kind_id(kind));
 
     {
-        let guard = cache.lock().unwrap();
+        // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(metrics) = guard.get(&key).cloned() {
             return metrics;
         }
@@ -91,7 +92,7 @@ fn cached_index_metrics(
 
     let computed = measure_index_build(size, kind, rt).expect("failed to measure index build");
 
-    let mut guard = cache.lock().unwrap();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     guard.insert(key, computed.clone());
     computed
 }
@@ -148,14 +149,15 @@ fn dataset_for_size(size: usize) -> Arc<Vec<Vec<f32>>> {
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     {
-        let guard = cache.lock().unwrap();
+        // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = guard.get(&size).cloned() {
             return existing;
         }
     }
 
     let generated = Arc::new(generate_random_vectors(size, DEFAULT_DIMENSION));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     guard.insert(size, Arc::clone(&generated));
     generated
 }

@@ -81,6 +81,14 @@ pub async fn search_vectors(
     validation::validate_vector(&req.vector, metadata.descriptor.vector_dim as usize)?;
     validation::validate_top_k(req.top_k)?;
 
+    // BUGFIX (Bug #22): Validate timeout_ms to prevent zero timeouts
+    // Zero timeout causes immediate cancellation before query even starts
+    if req.timeout_ms == 0 {
+        return Err(ApiError::Validation(
+            "timeout_ms must be greater than 0".to_string(),
+        ));
+    }
+
     // Get current epoch for cache key
     let current_epoch = metadata.epoch.load(std::sync::atomic::Ordering::SeqCst);
 

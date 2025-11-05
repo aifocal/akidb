@@ -497,11 +497,12 @@ impl S3StorageBackend {
         manifest.bump_revision();
 
         // Recalculate total_vectors from segments
+        // BUGFIX: Use saturating_add to prevent u64 overflow when summing segment counts
         manifest.total_vectors = manifest
             .segments
             .iter()
             .map(|seg| seg.record_count as u64)
-            .sum();
+            .fold(0u64, |acc, count| acc.saturating_add(count));
     }
 
     /// Write segment with actual vector data using SEGv1 format

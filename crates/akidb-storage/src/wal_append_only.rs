@@ -635,11 +635,12 @@ impl WalRecovery for AppendOnlyWalBackend {
         }
 
         // Calculate total entries
+        // BUGFIX: Use saturating_add to prevent u64 overflow when summing LSNs
         stats.total_entries = stats
             .last_lsn_per_stream
             .values()
             .map(|lsn| lsn.value())
-            .sum();
+            .fold(0u64, |acc, lsn_val| acc.saturating_add(lsn_val));
 
         info!(
             "WAL recovery completed: {} streams, {} total entries",
