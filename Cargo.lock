@@ -178,6 +178,7 @@ dependencies = [
  "akidb-core",
  "akidb-index",
  "akidb-storage",
+ "bytes",
  "chrono",
  "clap",
  "futures",
