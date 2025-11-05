@@ -23,6 +23,10 @@ harness = false
 name = "hnsw_library_comparison"
 harness = false
 
+[[bench]]
+name = "query_optimizations"
+harness = false
+
 [dependencies]
 akidb-core = { path = "../akidb-core" }
 akidb-storage = { path = "../akidb-storage" }
