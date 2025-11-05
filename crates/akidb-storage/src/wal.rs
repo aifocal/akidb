@@ -175,10 +175,16 @@ impl S3WalBackendBuilder {
         );
 
         // Mark as initialized
-        backend
-            .initialized
-            .set(())
-            .expect("initialized should only be set once");
+        // BUGFIX (Bug #28): Handle case where initialized is already set.
+        // While this shouldn't happen in normal usage (builder consumes self),
+        // if it does occur (e.g., in tests or due to a bug), we should handle
+        // it gracefully rather than panicking.
+        if let Err(_) = backend.initialized.set(()) {
+            warn!(
+                "WAL backend initialization called multiple times. \
+                 This should not happen - check for duplicate initialization."
+            );
+        }
 
         Ok(backend)
     }

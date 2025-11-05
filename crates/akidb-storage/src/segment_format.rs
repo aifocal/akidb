@@ -472,8 +472,18 @@ impl SegmentReader {
         Self::verify_checksum(data_without_checksum, stored_checksum, header.checksum_type)?;
 
         // 3. Read vector data block
+        // BUGFIX (Bug #30): Validate u64 to usize cast to prevent truncation on 32-bit systems
+        let vector_offset_usize = usize::try_from(header.vector_offset).map_err(|_| {
+            Error::Storage(format!(
+                "Vector offset {} exceeds usize::MAX on this platform ({}). \
+                 Cannot read vector data block from segment.",
+                header.vector_offset,
+                usize::MAX
+            ))
+        })?;
+
         let vectors = Self::read_vector_block(
-            &data[header.vector_offset as usize..],
+            &data[vector_offset_usize..],
             header.dimension,
             header.vector_count,
         )?;
@@ -482,8 +492,19 @@ impl SegmentReader {
         let metadata = if header.metadata_offset > 0 {
             // Read metadata from offset to end minus checksum
             let metadata_end = data.len() - CHECKSUM_SIZE;
+
+            // BUGFIX (Bug #30): Validate u64 to usize cast to prevent truncation on 32-bit systems
+            let metadata_offset_usize = usize::try_from(header.metadata_offset).map_err(|_| {
+                Error::Storage(format!(
+                    "Metadata offset {} exceeds usize::MAX on this platform ({}). \
+                     Cannot read metadata block from segment.",
+                    header.metadata_offset,
+                    usize::MAX
+                ))
+            })?;
+
             Some(Self::read_metadata_block(
-                &data[header.metadata_offset as usize..metadata_end],
+                &data[metadata_offset_usize..metadata_end],
             )?)
         } else {
             None

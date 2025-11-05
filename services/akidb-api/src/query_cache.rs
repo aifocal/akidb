@@ -44,8 +44,31 @@ impl CacheKey {
         };
 
         // Serialize to JSON for deterministic hashing
-        let json =
-            serde_json::to_string(&components).expect("CacheKeyComponents should always serialize");
+        // BUGFIX (Bug #27): Handle serialization errors gracefully instead of panicking.
+        // While serialization should normally succeed, NaN/Inf values or extremely large
+        // vectors could potentially cause issues. If serialization fails, use a fallback
+        // hash based on the individual components.
+        let json = match serde_json::to_string(&components) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to serialize cache key components (collection: {}, vector_len: {}): {}. \
+                     Using fallback hash.",
+                    components.collection,
+                    components.vector.len(),
+                    e
+                );
+                // Fallback: create a deterministic string from components
+                format!(
+                    "{}:{}:{}:{:?}:{}",
+                    components.collection,
+                    components.vector.len(),
+                    components.top_k,
+                    components.filter,
+                    components.epoch
+                )
+            }
+        };
 
         // Hash with SHA256
         let mut hasher = Sha256::new();
