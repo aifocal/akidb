@@ -515,7 +515,17 @@ impl SegmentReader {
             .map_err(|e| Error::Storage(format!("Failed to read uncompressed size: {}", e)))?;
 
         // Read compressed data
-        let mut compressed_data = vec![0u8; compressed_size as usize];
+        // BUGFIX: Validate u64 to usize cast to prevent truncation on 32-bit systems
+        let compressed_size_usize = usize::try_from(compressed_size).map_err(|_| {
+            Error::Storage(format!(
+                "Compressed size {} exceeds usize::MAX on this platform ({}). \
+                 Cannot allocate buffer for reading compressed data.",
+                compressed_size,
+                usize::MAX
+            ))
+        })?;
+
+        let mut compressed_data = vec![0u8; compressed_size_usize];
         cursor
             .read_exact(&mut compressed_data)
             .map_err(|e| Error::Storage(format!("Failed to read compressed data: {}", e)))?;
@@ -528,7 +538,16 @@ impl SegmentReader {
         };
 
         // Verify size matches
-        if vector_bytes.len() != uncompressed_size as usize {
+        // BUGFIX: Validate u64 to usize cast before comparison
+        let uncompressed_size_usize = usize::try_from(uncompressed_size).map_err(|_| {
+            Error::Storage(format!(
+                "Uncompressed size {} exceeds usize::MAX on this platform ({})",
+                uncompressed_size,
+                usize::MAX
+            ))
+        })?;
+
+        if vector_bytes.len() != uncompressed_size_usize {
             return Err(Error::Storage(format!(
                 "Decompressed size mismatch: expected {}, got {}",
                 uncompressed_size,
@@ -539,18 +558,41 @@ impl SegmentReader {
         // Convert bytes back to f32 array
         let flat_vectors: &[f32] = bytemuck::cast_slice(&vector_bytes);
 
-        // Reshape into individual vectors
-        let expected_total = (dimension as usize) * (vector_count as usize);
+        // BUGFIX: Validate u64 to usize cast for vector_count (moved before use)
+        let vector_count_usize = usize::try_from(vector_count).map_err(|_| {
+            Error::Storage(format!(
+                "Vector count {} exceeds usize::MAX on this platform ({})",
+                vector_count,
+                usize::MAX
+            ))
+        })?;
+
+        // BUGFIX: Validate u32 to usize cast for dimension (unlikely to fail but defensive)
+        let dimension_usize = usize::try_from(dimension).map_err(|_| {
+            Error::Storage(format!(
+                "Dimension {} exceeds usize::MAX on this platform ({})",
+                dimension,
+                usize::MAX
+            ))
+        })?;
+
+        // BUGFIX: Check for multiplication overflow when calculating expected size
+        let expected_total = dimension_usize.checked_mul(vector_count_usize).ok_or_else(|| {
+            Error::Storage(format!(
+                "Vector size calculation overflow: {} × {} exceeds usize::MAX",
+                dimension_usize, vector_count_usize
+            ))
+        })?;
+
         if flat_vectors.len() != expected_total {
             return Err(Error::Storage(format!(
-                "Vector data size mismatch: expected {} floats, got {}",
-                expected_total,
-                flat_vectors.len()
+                "Vector data size mismatch: expected {} floats ({}×{}), got {}",
+                expected_total, vector_count, dimension, flat_vectors.len()
             )));
         }
 
-        let mut vectors = Vec::with_capacity(vector_count as usize);
-        for chunk in flat_vectors.chunks_exact(dimension as usize) {
+        let mut vectors = Vec::with_capacity(vector_count_usize);
+        for chunk in flat_vectors.chunks_exact(dimension_usize) {
             vectors.push(chunk.to_vec());
         }
 
@@ -599,7 +641,17 @@ impl SegmentReader {
             .map_err(|e| Error::Storage(format!("Failed to read metadata size: {}", e)))?;
 
         // Read metadata bytes
-        let mut metadata_bytes = vec![0u8; metadata_size as usize];
+        // BUGFIX: Validate u64 to usize cast to prevent truncation on 32-bit systems
+        let metadata_size_usize = usize::try_from(metadata_size).map_err(|_| {
+            Error::Storage(format!(
+                "Metadata size {} exceeds usize::MAX on this platform ({}). \
+                 Cannot allocate buffer for reading metadata.",
+                metadata_size,
+                usize::MAX
+            ))
+        })?;
+
+        let mut metadata_bytes = vec![0u8; metadata_size_usize];
         cursor
             .read_exact(&mut metadata_bytes)
             .map_err(|e| Error::Storage(format!("Failed to read metadata bytes: {}", e)))?;
