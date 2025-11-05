@@ -43,7 +43,8 @@ fn collection_for_size(size: usize) -> Collection {
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     {
-        let guard = cache.lock().unwrap();
+        // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = guard.get(&size).cloned() {
             return existing;
         }
@@ -53,7 +54,7 @@ fn collection_for_size(size: usize) -> Collection {
     let payloads = generate_payloads(size, true);
     let collection = create_collection_from_arc(None, vectors, payloads);
 
-    let mut guard = cache.lock().unwrap();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     guard.insert(size, collection.clone());
     collection
 }

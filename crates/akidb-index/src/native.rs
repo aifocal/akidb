@@ -275,7 +275,9 @@ impl VectorStore {
                     norm_b += b[i] * b[i];
                 }
 
-                if norm_a == 0.0 || norm_b == 0.0 {
+                // BUGFIX: Use epsilon comparison for floating point zero check
+                const EPSILON: f32 = 1e-10;
+                if norm_a < EPSILON || norm_b < EPSILON {
                     return 1.0; // Maximum distance
                 }
 

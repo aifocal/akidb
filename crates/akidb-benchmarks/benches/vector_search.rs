@@ -103,7 +103,8 @@ fn run_vector_search_scenarios(
                     for _ in 0..iters {
                         let start = Instant::now();
                         let idx = {
-                            let mut rng = query_rng.lock().unwrap();
+                            // BUGFIX: Handle poisoned mutex gracefully in benchmarks
+                            let mut rng = query_rng.lock().unwrap_or_else(|e| e.into_inner());
                             rng.gen_range(0..collection.vectors.len())
                         };
 
