@@ -1,0 +1,29 @@
+[package]
+name = "akidb-index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+akidb-core = { path = "../akidb-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"
+parking_lot = "0.12"
+rand = "0.8"
+
+[dev-dependencies]
+criterion.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }
+rand = "0.8"
+
+[[bench]]
+name = "index_bench"
+harness = false
