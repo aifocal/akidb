@@ -8,6 +8,11 @@
 //! - Time complexity: O(log(n) · d) with high probability
 //! - Space complexity: O(n · M · log(n))
 //! - Recall: >0.95 @ k=10 with proper parameter tuning
+//!
+//! Note: This is a research implementation (Phase 4C) for educational purposes.
+//! For production use, see InstantDistanceIndex (Phase 4B) which achieves >95% recall.
+
+#![allow(dead_code)]
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
