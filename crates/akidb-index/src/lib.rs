@@ -6,6 +6,8 @@
 
 mod brute_force;
 mod hnsw;
+mod instant_hnsw;
 
 pub use brute_force::BruteForceIndex;
 pub use hnsw::{HnswConfig, HnswIndex};
+pub use instant_hnsw::{InstantDistanceConfig, InstantDistanceIndex};

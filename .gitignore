@@ -1,6 +1,26 @@
 
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
 # AutomatosX
 .automatosx/memory/
 .automatosx/logs/
 automatosx/tmp/  # v5.2: Temporary files
-automatosx.config.json  # Optional: remove to track config
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
