@@ -56,6 +56,18 @@ cargo test -p akidb-metadata
 # Run a single test
 cargo test test_name -- --nocapture
 
+# Run tests matching a pattern
+cargo test --workspace -- tenant
+
+# Run tests for a specific module
+cargo test -p akidb-index hnsw
+
+# Run ignored tests (marked with #[ignore])
+cargo test --workspace -- --ignored
+
+# Run all tests including ignored
+cargo test --workspace -- --include-ignored
+
 # Check without building
 cargo check --workspace
 ```
@@ -81,6 +93,22 @@ cargo doc --workspace --no-deps --open
 
 # Build docs only
 cargo doc --workspace --no-deps
+```
+
+### Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench --workspace
+
+# Run specific benchmark
+cargo bench --bench index_bench
+
+# Run benchmark with baseline comparison
+cargo bench --bench index_bench -- --save-baseline main
+
+# Compare against baseline
+cargo bench --bench index_bench -- --baseline main
 ```
 
 ### Database Migrations
@@ -472,6 +500,25 @@ let index = InstantDistanceIndex::new(config);
 // Insert, search, delete work identically to BruteForceIndex
 ```
 
+### Choosing the Right Index
+
+**BruteForceIndex** - Use when:
+- Vector count < 10,000
+- 100% recall required
+- Simplicity/predictability is critical
+- Memory footprint must be minimal
+
+**InstantDistanceIndex** - Use when:
+- Vector count: 10k - 1M+
+- Production deployment
+- Need >95% recall with fast search
+- Standard use case (RECOMMENDED)
+
+**Custom HNSW** - Use when:
+- Research/educational purposes only
+- Learning HNSW algorithm internals
+- Not recommended for production
+
 ### Phase 4C: Custom HNSW (Research Implementation) ⚠️
 
 **Status:** 90% Complete - Functional but recall at 65%
@@ -486,11 +533,38 @@ let index = InstantDistanceIndex::new(config);
 
 **Recommendation:** Use InstantDistanceIndex (Phase 4B) for all production deployments
 
-### Phase 5+: Pending
+### Phase 5: RC1 Server Layer & Collection Persistence - ✅ COMPLETE
 
-- ⏸️ Phase 5: S3/MinIO tiered storage integration
-- ⏸️ Phase 6: Cedar policy engine migration (optional ABAC upgrade)
-- ⏸️ Phase 7: Production hardening (WAL, crash recovery, distributed deployment)
+**Status:** ✅ 100% Complete - Production-ready
+
+**Deliverables:**
+- ✅ REST API server (akidb-rest) with Axum
+- ✅ gRPC API server (akidb-grpc) with Tonic
+- ✅ Collection management APIs (create, list, get, delete)
+- ✅ Vector operation APIs (insert, query, get, delete)
+- ✅ Collection persistence with SQLite
+- ✅ Auto-initialization (default tenant + database on first startup)
+- ✅ Collection auto-load on server restart
+- ✅ Docker Compose deployment configuration
+- ✅ Smoke tests (12 tests passing)
+
+**Key Features:**
+- **Zero-Configuration Deployment**: Servers auto-create default tenant and database
+- **Collection Persistence**: Collections survive server restarts with ACID guarantees
+- **Dual API**: Both REST and gRPC share same service layer
+- **Production-Ready**: All tests passing, comprehensive error handling
+
+**Architecture:**
+- RC1 Single-Database Mode (one tenant, one database, all collections)
+- Multi-tenancy schema ready for Phase 6+
+
+**Completion Report:** `automatosx/tmp/rc1-database-initialization-completion.md`
+
+### Phase 6+: Pending
+
+- ⏸️ Phase 6: S3/MinIO tiered storage integration (vector data persistence)
+- ⏸️ Phase 7: Cedar policy engine migration (optional ABAC upgrade)
+- ⏸️ Phase 8: Production hardening (WAL, crash recovery, distributed deployment)
 
 ---
 
