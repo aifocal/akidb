@@ -32,7 +32,9 @@ impl SqliteCollectionRepository {
         E: Executor<'e, Database = Sqlite>,
     {
         // Validate dimension bounds
-        collection.validate_dimension().map_err(CoreError::invalid_state)?;
+        collection
+            .validate_dimension()
+            .map_err(CoreError::invalid_state)?;
 
         let collection_id = collection.collection_id.to_bytes().to_vec();
         let database_id = collection.database_id.to_bytes().to_vec();
@@ -95,7 +97,9 @@ impl SqliteCollectionRepository {
         E: Executor<'e, Database = Sqlite>,
     {
         // Validate dimension bounds
-        collection.validate_dimension().map_err(CoreError::invalid_state)?;
+        collection
+            .validate_dimension()
+            .map_err(CoreError::invalid_state)?;
 
         let collection_id = collection.collection_id.to_bytes().to_vec();
         let database_id = collection.database_id.to_bytes().to_vec();
@@ -170,7 +174,10 @@ impl SqliteCollectionRepository {
         .map_err(|err| map_sqlx_error("collection", collection_id.to_string(), err))?;
 
         if result.rows_affected() == 0 {
-            return Err(CoreError::not_found("collection", collection_id.to_string()));
+            return Err(CoreError::not_found(
+                "collection",
+                collection_id.to_string(),
+            ));
         }
         Ok(())
     }
@@ -284,6 +291,31 @@ impl akidb_core::CollectionRepository for SqliteCollectionRepository {
             "#,
         )
         .bind(database_id.to_bytes().to_vec())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|err| CoreError::internal(err.to_string()))?;
+
+        rows.into_iter().map(Self::map_row).collect()
+    }
+
+    async fn list_all(&self) -> CoreResult<Vec<CollectionDescriptor>> {
+        let rows = query(
+            r#"
+            SELECT collection_id,
+                   database_id,
+                   name,
+                   dimension,
+                   metric,
+                   embedding_model,
+                   hnsw_m,
+                   hnsw_ef_construction,
+                   max_doc_count,
+                   created_at,
+                   updated_at
+              FROM collections
+          ORDER BY created_at ASC
+            "#,
+        )
         .fetch_all(&self.pool)
         .await
         .map_err(|err| CoreError::internal(err.to_string()))?;

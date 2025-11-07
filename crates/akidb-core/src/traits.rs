@@ -62,6 +62,10 @@ pub trait CollectionRepository: Send + Sync {
         database_id: DatabaseId,
     ) -> CoreResult<Vec<CollectionDescriptor>>;
 
+    /// Lists all collections across all databases ordered by creation time.
+    /// Used for loading collections on startup.
+    async fn list_all(&self) -> CoreResult<Vec<CollectionDescriptor>>;
+
     /// Updates an existing collection descriptor.
     async fn update(&self, collection: &CollectionDescriptor) -> CoreResult<()>;
 
