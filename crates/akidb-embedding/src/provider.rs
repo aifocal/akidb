@@ -16,7 +16,10 @@ pub trait EmbeddingProvider: Send + Sync {
     /// - The model is not found or not loaded
     /// - Input validation fails (empty, too long)
     /// - Internal embedding generation fails
-    async fn embed_batch(&self, request: BatchEmbeddingRequest) -> EmbeddingResult<BatchEmbeddingResponse>;
+    async fn embed_batch(
+        &self,
+        request: BatchEmbeddingRequest,
+    ) -> EmbeddingResult<BatchEmbeddingResponse>;
 
     /// Get model information (dimension, capabilities).
     ///

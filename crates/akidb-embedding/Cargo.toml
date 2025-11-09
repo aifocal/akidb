@@ -12,6 +12,9 @@ repository.workspace = true
 tokio = { workspace = true }
 async-trait = "0.1"
 
+# Synchronization
+parking_lot = "0.12"
+
 # Error handling
 thiserror = { workspace = true }
 anyhow = { workspace = true }
@@ -19,6 +22,11 @@ anyhow = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# Python integration
+# Using auto-initialize for embedding Python in Rust
+# abi3-py310 provides stable ABI compatibility with Python 3.10+ (including 3.13)
+pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py310"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }

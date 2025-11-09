@@ -1,0 +1,16 @@
+# Python dependencies for AkiDB MLX Embedding Service
+
+# Core dependencies (Day 1)
+numpy>=1.24.0
+
+# MLX dependencies (Day 2-3)
+huggingface-hub>=0.19.0
+
+# MLX framework (Day 3+)
+mlx>=0.0.8
+
+# MLX LM for model loading and inference (Day 4)
+mlx-lm>=0.18.0  # Brings in transformers and tokenizers automatically
+
+# Configuration (Day 5)
+pyyaml>=6.0

@@ -1,0 +1,50 @@
+# AkiDB MLX Embedding Service Configuration
+# Copy this file to one of the following locations:
+#   1. Set AKIDB_CONFIG environment variable to point to this file
+#   2. embedding_config.yaml in current directory
+#   3. ~/.config/akidb/embedding_config.yaml
+
+embedding:
+  # Model selection
+  # Available models:
+  #   - qwen3-0.6b-4bit (1024-dim, 600MB, default)
+  #   - gemma-300m-4bit (768-dim, 200MB, faster)
+  model_name: "qwen3-0.6b-4bit"
+
+  # Pooling strategy
+  # Options: "mean" (recommended) or "cls"
+  # - mean: Attention-masked average over all tokens (better for semantic search)
+  # - cls: Use [CLS] token embedding (faster, less context)
+  pooling: "mean"
+
+  # L2 normalization
+  # Set to true for cosine similarity searches (recommended)
+  # Set to false for dot product or L2 distance
+  normalize: true
+
+  # Maximum sequence length (tokens)
+  # Longer texts will be truncated
+  # Range: 128-2048 (512 is optimal for most use cases)
+  max_tokens: 512
+
+  # Auto-download models from HuggingFace Hub
+  # If false, models must be pre-downloaded
+  auto_download: true
+
+  # Maximum batch size for inference
+  # Larger batches are faster but use more memory
+  # Recommended: 32 for 16GB RAM, 64 for 32GB RAM
+  batch_size: 32
+
+# Performance tuning (future)
+# performance:
+#   num_threads: 4
+#   use_gpu: true
+#   cache_embeddings: false
+
+# Model registry (future)
+# custom_models:
+#   - name: "my-custom-model"
+#     repo_id: "org/model-name"
+#     dimension: 768
+#     max_tokens: 512
