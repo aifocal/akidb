@@ -17,7 +17,7 @@ AkiDB 2.0 is a RAM-first vector database optimized for ARM edge devices (Mac ARM
 
 ## Workspace Structure
 
-This is a Cargo workspace with five crates:
+This is a Cargo workspace with 10 crates:
 
 ```
 crates/
@@ -25,6 +25,11 @@ crates/
 ├── akidb-metadata/     # SQLite persistence layer for control plane
 ├── akidb-embedding/    # Embedding service provider traits and implementations
 ├── akidb-index/        # Vector indexing (brute-force, HNSW)
+├── akidb-storage/      # Tiered storage (WAL, S3/MinIO, Parquet) [NEW - Phase 6]
+├── akidb-service/      # Core business logic and collection management
+├── akidb-proto/        # gRPC protocol definitions
+├── akidb-grpc/         # gRPC API server
+├── akidb-rest/         # REST API server
 └── akidb-cli/          # CLI tools (migration, admin commands)
 ```
 
@@ -33,7 +38,12 @@ crates/
 - **akidb-core**: Pure domain layer. Contains domain models (`TenantDescriptor`, `DatabaseDescriptor`, `CollectionDescriptor`, `VectorDocument`) and traits (`TenantCatalog`, `DatabaseRepository`, `VectorIndex`). Zero database dependencies.
 - **akidb-metadata**: Implements core traits using SQLx + SQLite. Manages tenant/database/collection lifecycle, migrations, and metadata catalog.
 - **akidb-embedding**: Embedding service infrastructure. Defines `EmbeddingProvider` trait with mock implementation for testing. Future: MLX/ONNX backends.
-- **akidb-index**: Vector indexing implementations. Provides `BruteForceIndex` (baseline) and future `HnswIndex` for approximate nearest neighbor search.
+- **akidb-index**: Vector indexing implementations. Provides `BruteForceIndex` (baseline) and `InstantDistanceIndex` (production HNSW) for approximate nearest neighbor search.
+- **akidb-storage**: [NEW - Phase 6] Tiered storage layer with Write-Ahead Log (WAL) for durability, S3/MinIO object store integration, Parquet snapshots, and hot/warm/cold tiering policies.
+- **akidb-service**: Core business logic layer providing collection management and vector operations.
+- **akidb-proto**: Protocol buffer definitions for gRPC API.
+- **akidb-grpc**: gRPC API server implementation.
+- **akidb-rest**: REST API server implementation (Axum).
 - **akidb-cli**: Migration tools for v1.x → v2.0 upgrades and admin operations.
 
 ---
@@ -139,6 +149,84 @@ cargo run -p akidb-cli -- migrate v1-to-v2 \
 cargo run -p akidb-cli -- migrate v1-to-v2 \
   --v1-data-dir /path/to/v1/data \
   --v2-database /path/to/metadata.db
+```
+
+### Running Servers
+
+```bash
+# Run REST API server (port 8080)
+cargo run -p akidb-rest
+
+# Run gRPC API server (port 9090)
+cargo run -p akidb-grpc
+
+# Run both servers in separate terminals
+# Terminal 1:
+cargo run -p akidb-rest
+# Terminal 2:
+cargo run -p akidb-grpc
+
+# Run with custom config file
+AKIDB_CONFIG=custom.toml cargo run -p akidb-rest
+
+# Run with environment overrides
+AKIDB_REST_PORT=3000 AKIDB_LOG_LEVEL=debug cargo run -p akidb-rest
+```
+
+**Configuration:**
+- Default config: `config.toml` (copy from `config.example.toml`)
+- Environment variables override config file settings
+- Servers auto-create database and run migrations on startup
+- Auto-initialization creates default tenant/database (can be disabled)
+
+**Health Checks:**
+```bash
+# REST API
+curl http://localhost:8080/health
+
+# List collections
+curl http://localhost:8080/collections
+
+# Metrics endpoint
+curl http://localhost:8080/metrics
+```
+
+### Environment Configuration
+
+**Config File Priority:**
+1. Environment variables (highest priority)
+2. `config.toml` (if present)
+3. Built-in defaults (lowest priority)
+
+**Key Environment Variables:**
+```bash
+# Server settings
+AKIDB_HOST=0.0.0.0
+AKIDB_REST_PORT=8080
+AKIDB_GRPC_PORT=9090
+
+# Database
+AKIDB_DB_PATH=sqlite://akidb.db
+DATABASE_URL=sqlite:///tmp/test.db  # For SQLx compile-time checks
+
+# Logging
+AKIDB_LOG_LEVEL=info  # trace|debug|info|warn|error
+AKIDB_LOG_FORMAT=pretty  # pretty|json
+
+# Features
+AKIDB_METRICS_ENABLED=true
+AKIDB_VECTOR_PERSISTENCE_ENABLED=true
+```
+
+**Quick Start:**
+```bash
+# 1. Copy example config
+cp config.example.toml config.toml
+
+# 2. (Optional) Edit config.toml with your settings
+
+# 3. Start server
+cargo run -p akidb-rest
 ```
 
 ---
@@ -335,6 +423,21 @@ created_at: row.try_get("created_at")?,
 - Set `DATABASE_URL=sqlite:///tmp/test.db` in `.env` for macro validation
 - If schema changes, run `cargo sqlx prepare --workspace` to regenerate metadata
 
+**Config File Loading:**
+```rust
+// Config loads from config.toml by default, falls back to defaults
+let config = Config::load().unwrap_or_default();
+
+// Always validate after loading
+config.validate()?;
+
+// Handle errors explicitly if needed
+let config = Config::load().unwrap_or_else(|e| {
+    eprintln!("Warning: Failed to load config: {}. Using defaults.", e);
+    Config::default()
+});
+```
+
 ---
 
 ## Testing Strategy
@@ -361,210 +464,112 @@ cargo bench --bench tenant_crud
 
 ## Development Status
 
-### Phase 1: ✅ COMPLETED (M1 - Foundation/Metadata Layer)
+**Current Phase:** Phase 10 - Production-Ready v2.0 GA Release (6-week sprint)
 
-**Deliverables:**
-- ✅ Workspace setup (4 crates: core, metadata, embedding, cli)
-- ✅ akidb-core domain models (TenantDescriptor, DatabaseDescriptor, IDs)
-- ✅ akidb-core traits (TenantCatalog, DatabaseRepository)
-- ✅ akidb-metadata SQLite migrations (001_initial_schema.sql)
-- ✅ akidb-metadata repository implementations (all working)
-- ✅ Integration tests (10 tests passing: tenant CRUD, database CRUD, FK cascades, unique constraints)
-- ✅ Zero compiler warnings, all clippy checks passing
+| Phase | Status | Key Deliverables | Documentation |
+|-------|--------|------------------|---------------|
+| Phase 1 | ✅ Complete | Metadata layer, tenant/database management | [Report](automatosx/PRD/PHASE-1-M1-COMPLETION-REPORT.md) |
+| Phase 2 | ✅ Complete | Collections, embedding infrastructure | [Design](automatosx/PRD/PHASE-2-DESIGN.md) |
+| Phase 3 | ✅ Complete | User management, RBAC, audit logs | [Report](automatosx/PRD/PHASE-3-COMPLETION-REPORT.md) |
+| Phase 4 | ✅ Complete | Vector indexing (BruteForce + HNSW) | [Summary](automatosx/PRD/PHASE-4-FINAL-SUMMARY.md) |
+| Phase 5 | ✅ Complete | REST/gRPC servers, persistence (RC1) | [Benchmarks](docs/PERFORMANCE-BENCHMARKS.md) |
+| MLX | ✅ Complete | Apple Silicon embeddings | [Report](automatosx/archive/mlx-integration/MLX-INTEGRATION-COMPLETE.md) |
+| Phase 10 | 🚧 IN PROGRESS | S3/MinIO + Observability + K8s (GA) | [PRD](automatosx/PRD/PHASE-10-PRODUCTION-READY-V2-PRD.md) |
 
-**Completion Report:** `automatosx/PRD/PHASE-1-M1-COMPLETION-REPORT.md`
+**Test Coverage:** 147 tests passing (11 unit + 36 integration + 16 index + 4 recall + 17 E2E + 25 stress + 38 other)
 
-### Phase 2: ✅ COMPLETED (Embedding Service Infrastructure)
+**Performance Targets Met:**
+- ✅ Search P95 <25ms @ 100k vectors (HNSW, 512-dim, ARM)
+- ✅ Insert throughput: 5,000+ ops/sec (HNSW)
+- ✅ >95% recall guarantee
 
-**Deliverables:**
-- ✅ CollectionDescriptor domain model in akidb-core
-- ✅ CollectionRepository trait with full CRUD operations
-- ✅ SQLite migration (002_collections_table.sql) with dimension validation (16-4096)
-- ✅ SqliteCollectionRepository implementation (runtime query validation)
-- ✅ akidb-embedding crate with EmbeddingProvider trait
-- ✅ MockEmbeddingProvider with deterministic embeddings for testing
-- ✅ Integration tests (7 collection tests + 5 embedding tests = 12 new tests)
-- ✅ All 22 tests passing (10 Phase 1 + 12 Phase 2)
+---
 
-**Key Design Decisions:**
-- Trait-based architecture for embedding providers (supports future MLX/ONNX backends)
-- Mock implementation using deterministic hash-based embeddings (no ML dependencies)
-- Runtime SQLx validation (avoids DATABASE_URL compile-time dependency)
-- Distance metrics: Cosine (default), Dot, L2
+### Phase 1-5: Completed (Foundation through RC1)
 
-**Design Document:** `automatosx/PRD/PHASE-2-DESIGN.md`
+**Phase 1-3:** Core infrastructure including metadata layer (SQLite), collections, embedding services, user management with Argon2id password hashing, and RBAC with audit logging.
 
-### Phase 3: ✅ COMPLETED (User Management & RBAC)
+**Phase 4:** Vector indexing with two implementations:
+- **BruteForceIndex**: Baseline implementation for <10k vectors, 100% recall
+- **InstantDistanceIndex**: Production HNSW via instant-distance library, >95% recall, suitable for 10k-1M+ vectors (RECOMMENDED)
+- Custom HNSW: Research implementation (not recommended for production)
 
-**Deliverables:**
-- ✅ UserDescriptor domain model with secure password hashing (Argon2id)
-- ✅ Role-based permissions (Admin, Developer, Viewer, Auditor)
-- ✅ AuditLogEntry domain model for compliance
-- ✅ UserRepository and AuditLogRepository traits
-- ✅ SQLite migrations (003_users_table.sql, 004_audit_logs_table.sql)
-- ✅ SqliteUserRepository and SqliteAuditLogRepository implementations
-- ✅ Password hashing utilities with Argon2id (OWASP recommended)
-- ✅ Integration tests (8 user + 4 RBAC + 3 audit = 15 new tests)
-- ✅ All 40 tests passing (10 Phase 1 + 7 Phase 2 collections + 5 Phase 2 embedding + 3 password + 15 Phase 3)
+**Phase 5 (RC1):** Full server layer with REST/gRPC APIs, collection persistence, auto-initialization, and comprehensive testing:
+- 147 tests passing (zero data corruption)
+- E2E integration tests + stress tests (1,000+ concurrent operations)
+- Performance benchmarks documented
+- Docker Compose deployment ready
 
-**Key Design Decisions:**
-- Enum-based RBAC for Phase 3 (pragmatic, production-ready)
-- Argon2id password hashing (memory-hard, resistant to GPU/ASIC attacks)
-- Action-based permissions (17 action types: user::create, collection::read, etc.)
-- Audit logging with IP tracking and metadata for compliance (SOC 2, HIPAA ready)
-- Multi-tenant isolation (users scoped to tenants, cascade deletes)
+**Key Features Available:**
+- Zero-configuration deployment with auto-initialization
+- Collection persistence (survives server restarts)
+- Dual API support (REST + gRPC)
+- Search P95 <5ms @ 10k, <25ms @ 100k vectors
+- >95% recall guarantee with HNSW
 
-**Security Features:**
-- Password hashing: Argon2id with unique salts (OWASP recommended)
-- RBAC: Deny by default, least privilege model
-- Audit trail: Every authorization decision logged (allow + deny)
-- Status-based access control: Suspended users have zero permissions
+**See detailed completion reports in `automatosx/PRD/` and `automatosx/tmp/` for phase-specific information.**
 
-**Design Document:** `automatosx/PRD/PHASE-3-DESIGN.md`
-**Completion Report:** `automatosx/PRD/PHASE-3-COMPLETION-REPORT.md`
+### Phase 10: 🚧 IN PROGRESS - Production-Ready v2.0 GA Release (6 weeks)
 
-### Phase 4A: ✅ COMPLETED (Vector Engine - BruteForce Baseline)
+**Status:** Ready to Start (0% complete)
+**Timeline:** 6 weeks (30 days)
+**Goal:** Complete S3/MinIO tiered storage + production hardening for GA release
 
-**Deliverables:**
-- ✅ VectorDocument and SearchResult domain models in akidb-core
-- ✅ VectorIndex trait with insert/search/delete/batch operations
-- ✅ Distance metric implementations (cosine similarity, Euclidean L2, dot product)
-- ✅ akidb-index crate with BruteForceIndex implementation
-- ✅ Unit tests (11 vector core + 10 brute-force = 21 new tests)
-- ✅ Doctests and examples for public API
-- ✅ Benchmarking infrastructure with Criterion
-- ✅ All 58 tests passing (32 Phase 1-3 integration + 5 embedding + 11 vector + 10 brute-force)
+**Phase 10 consolidates:**
+- Phase 6 remaining work (Parquet, tiering, RC2)
+- Phase 7 remaining work (performance, observability, K8s)
 
-**Key Design Decisions:**
-- Incremental approach: Start with correct brute-force baseline before HNSW optimization
-- Trait-based VectorIndex interface for multiple implementations (brute-force, HNSW, IVF)
-- Distance metrics use existing DistanceMetric enum (Cosine, Dot, L2)
-- 100% Rust safe code with parking_lot::RwLock for concurrency
-- Builder pattern for VectorDocument and SearchResult
+**Full PRD:** [PHASE-10-PRODUCTION-READY-V2-PRD.md](automatosx/PRD/PHASE-10-PRODUCTION-READY-V2-PRD.md)
+**Action Plan:** [PHASE-10-ACTION-PLAN.md](automatosx/tmp/PHASE-10-ACTION-PLAN.md)
 
-**Performance Characteristics:**
-- BruteForceIndex: O(n·d) search, suitable for <10k vectors
-- Expected: ~5ms @ 10k vectors (512-dim, ARM M3)
-- Memory: O(n·d) storage with HashMap backing
-- 100% recall (exhaustive search, perfect accuracy)
+**6-Week Breakdown:**
 
-**Design Document:** `automatosx/PRD/PHASE-4-DESIGN.md`
-**Completion Report:** `automatosx/PRD/PHASE-4-COMPLETION-REPORT.md`
-**Final Summary:** `automatosx/PRD/PHASE-4-FINAL-SUMMARY.md`
+**Part A: S3/MinIO Tiered Storage Completion (Weeks 1-3)**
+- **Week 1**: Parquet Snapshotter (~500 lines, 10 tests)
+- **Week 2**: Hot/Warm/Cold Tiering Policies (~400 lines, 12 tests)
+- **Week 3**: Integration Testing + RC2 Release (20 tests, docs)
 
-### Phase 4B: ✅ COMPLETE (HNSW via instant-distance - Production Ready)
+**Part B: Production Hardening Completion (Weeks 4-6)**
+- **Week 4**: Performance Optimization + E2E Testing (15 tests, benchmarks)
+- **Week 5**: Observability (12 metrics, 4 Grafana dashboards, tracing)
+- **Week 6**: Kubernetes + Chaos Tests + GA Release (Helm chart, 5 chaos tests)
 
-**Status:** ✅ 100% Complete - Production-ready with >95% recall guaranteed
+**Completed Foundation (from Phase 6-7):**
+- ✅ WAL infrastructure (15 tests passing)
+- ✅ S3/ObjectStore integration (19 tests passing)
+- ✅ Circuit breaker + DLQ (reliability hardening)
+- ✅ 142 tests baseline
 
-**Implementation:** InstantDistanceIndex - Wrapper around battle-tested instant-distance library (v0.6)
+**Remaining Deliverables:**
+- Parquet snapshotter with S3 integration
+- Automatic hot/warm/cold tiering
+- Performance optimization (>500 ops/sec S3 uploads)
+- Prometheus + Grafana + OpenTelemetry observability
+- Kubernetes Helm charts
+- Blue-green deployment automation
+- Chaos engineering tests
+- GA release (v2.0.0)
 
-**Test Results:**
-- ✅ 5/5 unit tests passing (insert, search, delete, get, clear, dimension validation)
-- ✅ 4/4 recall integration tests passing (>95% recall achieved!)
-  - 100 vectors Cosine: >95% recall ✅
-  - 1000 vectors Cosine: >95% recall ✅
-  - L2 metric: >90% recall ✅
-  - High recall config: >97% recall ✅
+**Success Metrics:**
+- ✅ 200+ tests passing (target)
+- ✅ P95 <25ms @ 100 QPS
+- ✅ S3 uploads >500 ops/sec
+- ✅ K8s deployment (1 command)
+- ✅ Full observability stack
+- ✅ GA release published
 
-**Key Features:**
-- ✅ Production-ready HNSW via instant-distance library
-- ✅ >95% recall guaranteed across all test scenarios
-- ✅ Supports all distance metrics (L2, Cosine, Dot)
-- ✅ Config presets (balanced, high_recall, fast)
-- ✅ Automatic vector normalization for Cosine similarity
-- ✅ Thread-safe with RwLock
-- ✅ Lazy index rebuilding (only when dirty)
-- ✅ All CRUD operations working
-- ✅ Battle-tested implementation (instant-distance has extensive production use)
+**See PRD for detailed week-by-week action plan, dependencies, and deliverables.**
 
-**Performance Characteristics:**
-- Suitable for 10k-1M+ vectors
-- Expected: P95 <25ms @ 100k vectors (512-dim, ARM)
-- >95% recall with balanced config
-- >97% recall with high_recall config
-- Memory: O(n·d) with HNSW graph overhead
+---
 
-**Design Decisions:**
-- Pragmatic approach: Use proven library instead of debugging custom implementation
-- Wrapper pattern: Clean VectorIndex trait implementation for easy swapping
-- Metric handling: Automatic normalization for Cosine, native L2/Dot support
+### Post-Phase 10: Future Roadmap
 
-**Usage:**
-```rust
-use akidb_index::{InstantDistanceIndex, InstantDistanceConfig};
-use akidb_core::{DistanceMetric, VectorDocument, VectorIndex};
-
-let config = InstantDistanceConfig::balanced(128, DistanceMetric::Cosine);
-let index = InstantDistanceIndex::new(config);
-
-// Insert, search, delete work identically to BruteForceIndex
-```
-
-### Choosing the Right Index
-
-**BruteForceIndex** - Use when:
-- Vector count < 10,000
-- 100% recall required
-- Simplicity/predictability is critical
-- Memory footprint must be minimal
-
-**InstantDistanceIndex** - Use when:
-- Vector count: 10k - 1M+
-- Production deployment
-- Need >95% recall with fast search
-- Standard use case (RECOMMENDED)
-
-**Custom HNSW** - Use when:
-- Research/educational purposes only
-- Learning HNSW algorithm internals
-- Not recommended for production
-
-### Phase 4C: Custom HNSW (Research Implementation) ⚠️
-
-**Status:** 90% Complete - Functional but recall at 65%
-
-**Purpose:** Research/learning implementation with Algorithm 4 neighbor selection
-
-**Test Results:**
-- ✅ 7/7 functional tests passing
-- ⚠️ 5/5 recall tests below targets (65% @ 100 vectors vs >90% target)
-
-**Use Case:** Educational/research purposes, not recommended for production
-
-**Recommendation:** Use InstantDistanceIndex (Phase 4B) for all production deployments
-
-### Phase 5: RC1 Server Layer & Collection Persistence - ✅ COMPLETE
-
-**Status:** ✅ 100% Complete - Production-ready
-
-**Deliverables:**
-- ✅ REST API server (akidb-rest) with Axum
-- ✅ gRPC API server (akidb-grpc) with Tonic
-- ✅ Collection management APIs (create, list, get, delete)
-- ✅ Vector operation APIs (insert, query, get, delete)
-- ✅ Collection persistence with SQLite
-- ✅ Auto-initialization (default tenant + database on first startup)
-- ✅ Collection auto-load on server restart
-- ✅ Docker Compose deployment configuration
-- ✅ Smoke tests (12 tests passing)
-
-**Key Features:**
-- **Zero-Configuration Deployment**: Servers auto-create default tenant and database
-- **Collection Persistence**: Collections survive server restarts with ACID guarantees
-- **Dual API**: Both REST and gRPC share same service layer
-- **Production-Ready**: All tests passing, comprehensive error handling
-
-**Architecture:**
-- RC1 Single-Database Mode (one tenant, one database, all collections)
-- Multi-tenancy schema ready for Phase 6+
-
-**Completion Report:** `automatosx/tmp/rc1-database-initialization-completion.md`
-
-### Phase 6+: Pending
-
-- ⏸️ Phase 6: S3/MinIO tiered storage integration (vector data persistence)
-- ⏸️ Phase 7: Cedar policy engine migration (optional ABAC upgrade)
-- ⏸️ Phase 8: Production hardening (WAL, crash recovery, distributed deployment)
+After GA release, consider:
+- **Phase 11**: Cedar policy engine (ABAC upgrade)
+- **Phase 12**: Multi-region deployment
+- **Phase 13**: Distributed vector search (sharding)
+- **Phase 14**: Advanced ML features
+- **Phase 15**: Enterprise features (SSO, enhanced audit)
 
 ---
 
@@ -603,16 +608,306 @@ let index = InstantDistanceIndex::new(config);
 
 ---
 
-## AutomatosX Integration
+#
+
+# AutomatosX Integration
 
 This project uses [AutomatosX](https://github.com/defai-digital/automatosx) - an AI agent orchestration platform with persistent memory and multi-agent collaboration.
 
-**File Conventions:**
-- `automatosx/PRD/` - Product Requirements Documents, design specs, ADRs, and planning documents
-- `automatosx/tmp/` - Temporary files, scratch work, and intermediate outputs (auto-cleaned)
+## Quick Start
 
-**Common Agent Commands:**
+### Available Commands
+
 ```bash
+# List all available agents
+ax list agents
+
+# Run an agent with a task
+ax run <agent-name> "your task description"
+
+# Example: Ask the backend agent to create an API
+ax run backend "create a REST API for user management"
+
+# Search memory for past conversations
+ax memory search "keyword"
+
+# View system status
+ax status
+```
+
+### Using AutomatosX in Claude Code
+
+You can interact with AutomatosX agents directly in Claude Code using natural language:
+
+**Natural Language Examples**:
+```
+"Please work with ax agent backend to implement user authentication"
+"Ask the ax security agent to audit this code for vulnerabilities"
+"Have the ax quality agent write tests for this feature"
+"Use ax agent product to design this new feature"
+"Work with ax agent devops to set up the deployment pipeline"
+```
+
+Claude Code will understand your intent and invoke the appropriate AutomatosX agent for you. Just describe what you need in natural language - no special commands required!
+
+### Available Agents
+
+This project includes the following specialized agents:
+
+- **backend** (Bob) - Backend development (Go/Rust systems)
+- **frontend** (Frank) - Frontend development (React/Next.js/Swift)
+- **architecture** (Avery) - System architecture and ADR management
+- **fullstack** (Felix) - Full-stack development (Node.js/TypeScript)
+- **mobile** (Maya) - Mobile development (iOS/Android, Swift/Kotlin/Flutter)
+- **devops** (Oliver) - DevOps and infrastructure
+- **security** (Steve) - Security auditing and threat modeling
+- **data** (Daisy) - Data engineering and ETL
+- **quality** (Queenie) - QA and testing
+- **design** (Debbee) - UX/UI design
+- **writer** (Wendy) - Technical writing
+- **product** (Paris) - Product management
+- **cto** (Tony) - Technical strategy
+- **ceo** (Eric) - Business leadership
+- **researcher** (Rodman) - Research and analysis
+- **data-scientist** (Dana) - Machine learning and data science
+- **aerospace-scientist** (Astrid) - Aerospace engineering and mission design
+- **quantum-engineer** (Quinn) - Quantum computing and algorithms
+- **creative-marketer** (Candy) - Creative marketing and content strategy
+- **standard** (Stan) - Standards and best practices expert
+
+For a complete list with capabilities, run: `ax list agents --format json`
+
+## Key Features
+
+### 1. Persistent Memory
+
+AutomatosX agents remember all previous conversations and decisions:
+
+```bash
+# First task - design is saved to memory
+ax run product "Design a calculator with add/subtract features"
+
+# Later task - automatically retrieves the design from memory
+ax run backend "Implement the calculator API"
+```
+
+### 2. Multi-Agent Collaboration
+
+Agents can delegate tasks to each other automatically:
+
+```bash
+ax run product "Build a complete user authentication feature"
+# → Product agent designs the system
+# → Automatically delegates implementation to backend agent
+# → Automatically delegates security audit to security agent
+```
+
+### 3. Cross-Provider Support
+
+AutomatosX supports multiple AI providers with automatic fallback:
+- **Claude** (Anthropic) - Primary provider for Claude Code users
+- **Gemini** (Google) - Alternative provider
+- **OpenAI** (GPT) - Alternative provider
+
+Configuration is in `automatosx.config.json`.
+
+## Configuration
+
+### Project Configuration
+
+Edit `automatosx.config.json` to customize:
+
+```json
+{
+  "providers": {
+    "claude-code": {
+      "enabled": true,
+      "priority": 1
+    },
+    "gemini-cli": {
+      "enabled": true,
+      "priority": 2
+    }
+  },
+  "execution": {
+    "defaultTimeout": 1500000,  // 25 minutes
+    "maxRetries": 3
+  },
+  "memory": {
+    "enabled": true,
+    "maxEntries": 10000
+  }
+}
+```
+
+### Agent Customization
+
+Create custom agents in `.automatosx/agents/`:
+
+```bash
+ax agent create my-agent --template developer --interactive
+```
+
+### Workspace Conventions
+
+**IMPORTANT**: AutomatosX uses specific directories for organized file management. Please follow these conventions when working with agents:
+
+- **`automatosx/PRD/`** - Product Requirements Documents, design specs, and planning documents
+  - Use for: Architecture designs, feature specs, technical requirements
+  - Example: `automatosx/PRD/auth-system-design.md`
+
+- **`automatosx/tmp/`** - Temporary files, scratch work, and intermediate outputs
+  - Use for: Draft code, test outputs, temporary analysis
+  - Auto-cleaned periodically
+  - Example: `automatosx/tmp/draft-api-endpoints.ts`
+
+**Usage in Claude Code**:
+```
+"Please save the architecture design to automatosx/PRD/user-auth-design.md"
+"Put the draft implementation in automatosx/tmp/auth-draft.ts for review"
+"Work with ax agent backend to implement the spec in automatosx/PRD/api-spec.md"
+```
+
+These directories are automatically created by `ax setup` and included in `.gitignore` appropriately.
+
+## Memory System
+
+### Search Memory
+
+```bash
+# Search for past conversations
+ax memory search "authentication"
+ax memory search "API design"
+
+# List recent memories
+ax memory list --limit 10
+
+# Export memory for backup
+ax memory export > backup.json
+```
+
+### How Memory Works
+
+- **Automatic**: All agent conversations are saved automatically
+- **Fast**: SQLite FTS5 full-text search (< 1ms)
+- **Local**: 100% private, data never leaves your machine
+- **Cost**: $0 (no API calls for memory operations)
+
+## Advanced Usage
+
+### Parallel Execution (v5.6.0+)
+
+Run multiple agents in parallel for faster workflows:
+
+```bash
+ax run product "Design authentication system" --parallel
+```
+
+### Resumable Runs (v5.3.0+)
+
+For long-running tasks, enable checkpoints:
+
+```bash
+ax run backend "Refactor entire codebase" --resumable
+
+# If interrupted, resume with:
+ax resume <run-id>
+
+# List all runs
+ax runs list
+```
+
+### Streaming Output (v5.6.5+)
+
+See real-time output from AI providers:
+
+```bash
+ax run backend "Explain this codebase" --streaming
+```
+
+### Spec-Driven Development (v5.8.0+)
+
+For complex projects, use spec-driven workflows:
+
+```bash
+# Create spec from natural language
+ax spec create "Build authentication with database, API, JWT, and tests"
+
+# Or manually define in .specify/tasks.md
+ax spec run --parallel
+
+# Check progress
+ax spec status
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"Agent not found"**
+```bash
+# List available agents
+ax list agents
+
+# Make sure agent name is correct
+ax run backend "task"  # ✓ Correct
+ax run Backend "task"  # ✗ Wrong (case-sensitive)
+```
+
+**"Provider not available"**
+```bash
+# Check system status
+ax status
+
+# View configuration
+ax config show
+```
+
+**"Out of memory"**
+```bash
+# Clear old memories
+ax memory clear --before "2024-01-01"
+
+# View memory stats
+ax cache stats
+```
+
+### Getting Help
+
+```bash
+# View command help
+ax --help
+ax run --help
+
+# Enable debug mode
+ax --debug run backend "task"
+
+# Search memory for similar past tasks
+ax memory search "similar task"
+```
+
+## Best Practices
+
+1. **Use Natural Language in Claude Code**: Let Claude Code coordinate with agents for complex tasks
+2. **Leverage Memory**: Reference past decisions and designs
+3. **Start Simple**: Test with small tasks before complex workflows
+4. **Review Configurations**: Check `automatosx.config.json` for timeouts and retries
+5. **Keep Agents Specialized**: Use the right agent for each task type
+
+## Documentation
+
+- **AutomatosX Docs**: https://github.com/defai-digital/automatosx
+- **Agent Directory**: `.automatosx/agents/`
+- **Configuration**: `automatosx.config.json`
+- **Memory Database**: `.automatosx/memory/memories.db`
+- **Workspace**: `automatosx/PRD/` (planning docs) and `automatosx/tmp/` (temporary files)
+
+## Support
+
+- Issues: https://github.com/defai-digital/automatosx/issues
+- NPM: https://www.npmjs.com/package/@defai.digital/automatosx
+
+
 # List available agents
 ax list agents
 
@@ -636,6 +931,7 @@ ax memory search "migration strategy"
 - Phase 1 Plan: `automatosx/PRD/PHASE-1-IMPLEMENTATION-PLAN.md`
 - Technical Architecture: `automatosx/PRD/akidb-2.0-technical-architecture.md`
 - Migration Strategy: `automatosx/PRD/akidb-2.0-migration-strategy.md`
+- Performance Benchmarks: `docs/PERFORMANCE-BENCHMARKS.md` (NEW - Week 3)
 
 **External Dependencies:**
 - SQLx documentation: https://docs.rs/sqlx/latest/sqlx/
