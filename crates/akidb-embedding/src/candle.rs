@@ -140,14 +140,158 @@ impl CandleEmbeddingProvider {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn new(_model_name: &str) -> EmbeddingResult<Self> {
-        // TODO: Implement in Day 2 (Task 2.1-2.3)
-        // 1. Download model files from HF Hub
-        // 2. Select device (Metal > CUDA > CPU)
-        // 3. Load model weights
-        // 4. Load tokenizer
-        // 5. Return provider
-        todo!("Implement model loading in Day 2")
+    pub async fn new(model_name: &str) -> EmbeddingResult<Self> {
+        // 1. Select device (Metal > CUDA > CPU)
+        let device = Self::select_device()?;
+
+        // 2. Download files from Hugging Face Hub
+        let api = Api::new().map_err(|e| {
+            EmbeddingError::Internal(format!("HF Hub API initialization failed: {}", e))
+        })?;
+
+        let repo = api.repo(Repo::new(model_name.to_string(), RepoType::Model));
+
+        eprintln!("📥 Downloading {} from Hugging Face Hub...", model_name);
+
+        let config_path = repo.get("config.json").map_err(|e| {
+            EmbeddingError::Internal(format!("Failed to download config.json: {}", e))
+        })?;
+
+        let weights_path = repo
+            .get("model.safetensors")
+            .or_else(|_| {
+                eprintln!("⚠️  model.safetensors not found, trying pytorch_model.bin");
+                repo.get("pytorch_model.bin")
+            })
+            .map_err(|e| {
+                EmbeddingError::Internal(format!("Failed to download model weights: {}", e))
+            })?;
+
+        let tokenizer_path = repo.get("tokenizer.json").map_err(|e| {
+            EmbeddingError::Internal(format!("Failed to download tokenizer.json: {}", e))
+        })?;
+
+        eprintln!("✅ Files downloaded (cached at ~/.cache/huggingface)");
+
+        // 3. Parse config.json
+        let config_json = std::fs::read_to_string(&config_path).map_err(|e| {
+            EmbeddingError::Internal(format!("Failed to read config.json: {}", e))
+        })?;
+
+        let config_value: serde_json::Value =
+            serde_json::from_str(&config_json).map_err(|e| {
+                EmbeddingError::Internal(format!("Failed to parse config.json: {}", e))
+            })?;
+
+        // Build BERT Config struct
+        let config = Config {
+            vocab_size: config_value["vocab_size"].as_u64().unwrap() as usize,
+            hidden_size: config_value["hidden_size"].as_u64().unwrap() as usize,
+            num_hidden_layers: config_value["num_hidden_layers"].as_u64().unwrap() as usize,
+            num_attention_heads: config_value["num_attention_heads"].as_u64().unwrap() as usize,
+            intermediate_size: config_value["intermediate_size"].as_u64().unwrap() as usize,
+            hidden_act: serde_json::from_value(config_value["hidden_act"].clone())
+                .unwrap_or(candle_transformers::models::bert::HiddenAct::Gelu),
+            max_position_embeddings: config_value["max_position_embeddings"]
+                .as_u64()
+                .unwrap() as usize,
+            type_vocab_size: config_value
+                .get("type_vocab_size")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(2) as usize,
+            layer_norm_eps: config_value
+                .get("layer_norm_eps")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1e-12),
+            hidden_dropout_prob: config_value
+                .get("hidden_dropout_prob")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.1),
+            classifier_dropout: config_value
+                .get("classifier_dropout")
+                .and_then(|v| v.as_f64()),
+            initializer_range: config_value
+                .get("initializer_range")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.02),
+            position_embedding_type: serde_json::from_value(
+                config_value
+                    .get("position_embedding_type")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::String("absolute".to_string())),
+            )
+            .unwrap_or(candle_transformers::models::bert::PositionEmbeddingType::Absolute),
+            use_cache: config_value
+                .get("use_cache")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            model_type: config_value
+                .get("model_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            pad_token_id: config_value
+                .get("pad_token_id")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+        };
+
+        let dimension = config.hidden_size as u32;
+
+        // 4. Load model weights
+        eprintln!("📦 Loading model weights into {:?}...", device);
+        use candle_core::DType;
+
+        let vb = if weights_path
+            .extension()
+            .and_then(|s| s.to_str())
+            == Some("safetensors")
+        {
+            unsafe {
+                VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)
+                    .map_err(|e| {
+                        EmbeddingError::Internal(format!(
+                            "Failed to load SafeTensors: {}",
+                            e
+                        ))
+                    })?
+            }
+        } else {
+            VarBuilder::from_pth(&weights_path, DType::F32, &device).map_err(|e| {
+                EmbeddingError::Internal(format!("Failed to load PyTorch weights: {}", e))
+            })?
+        };
+
+        let model = BertModel::load(vb, &config).map_err(|e| {
+            EmbeddingError::Internal(format!("Failed to load BertModel: {}", e))
+        })?;
+
+        let model = Arc::new(model);
+
+        // 5. Load tokenizer
+        eprintln!("📝 Loading tokenizer...");
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+            EmbeddingError::Internal(format!("Failed to load tokenizer: {}", e))
+        })?;
+
+        let tokenizer = Arc::new(tokenizer);
+
+        // Quick tokenizer test
+        if let Ok(encoding) = tokenizer.encode("test", true) {
+            eprintln!("✅ Tokenizer test: {} tokens", encoding.len());
+        }
+
+        eprintln!("✅ CandleEmbeddingProvider initialized successfully");
+        eprintln!("   Model: {}", model_name);
+        eprintln!("   Device: {:?}", device);
+        eprintln!("   Dimension: {}", dimension);
+
+        Ok(Self {
+            model,
+            tokenizer,
+            device,
+            model_name: model_name.to_string(),
+            dimension,
+        })
     }
 
     /// Generate embeddings for batch of texts (internal implementation).
@@ -192,11 +336,27 @@ impl CandleEmbeddingProvider {
     ///
     /// Selected device (never fails, CPU is fallback)
     fn select_device() -> EmbeddingResult<Device> {
-        // TODO: Implement in Day 2 (Task 2.2)
-        // 1. Try Metal (macOS)
-        // 2. Try CUDA (Linux)
-        // 3. Fallback to CPU
-        todo!("Implement device selection in Day 2")
+        // Try Metal on macOS
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(device) = Device::new_metal(0) {
+                eprintln!("✅ Using Metal GPU (macOS)");
+                return Ok(device);
+            }
+        }
+
+        // Try CUDA on Linux/Windows
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Ok(device) = Device::new_cuda(0) {
+                eprintln!("✅ Using CUDA GPU");
+                return Ok(device);
+            }
+        }
+
+        // Fallback to CPU
+        eprintln!("⚠️  Using CPU (GPU unavailable)");
+        Ok(Device::Cpu)
     }
 }
 
@@ -239,13 +399,11 @@ impl EmbeddingProvider for CandleEmbeddingProvider {
     ///
     /// Model info with name, dimension, and max tokens
     async fn model_info(&self) -> EmbeddingResult<ModelInfo> {
-        // TODO: Implement in Day 5 (Task 5.2)
-        // Return ModelInfo {
-        //   model: self.model_name,
-        //   dimension: self.dimension,
-        //   max_tokens: 512
-        // }
-        todo!("Implement model_info in Day 5")
+        Ok(ModelInfo {
+            model: self.model_name.clone(),
+            dimension: self.dimension,
+            max_tokens: 512, // BERT standard max sequence length
+        })
     }
 
     /// Health check for the embedding service.
