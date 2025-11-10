@@ -523,14 +523,62 @@ impl EmbeddingProvider for CandleEmbeddingProvider {
     /// - GPU/CPU error
     async fn embed_batch(
         &self,
-        _request: BatchEmbeddingRequest,
+        request: BatchEmbeddingRequest,
     ) -> EmbeddingResult<BatchEmbeddingResponse> {
-        // TODO: Implement in Day 5 (Task 5.1)
+        use std::time::Instant;
+
         // 1. Validate input
-        // 2. Call embed_batch_internal()
-        // 3. Calculate usage statistics
-        // 4. Build response
-        todo!("Implement trait method in Day 5")
+        if request.inputs.is_empty() {
+            return Err(EmbeddingError::InvalidInput(
+                "Empty input list".to_string(),
+            ));
+        }
+
+        if request.inputs.len() > 32 {
+            return Err(EmbeddingError::InvalidInput(format!(
+                "Batch size {} exceeds maximum of 32",
+                request.inputs.len()
+            )));
+        }
+
+        // Check for empty strings
+        for (i, input) in request.inputs.iter().enumerate() {
+            if input.trim().is_empty() {
+                return Err(EmbeddingError::InvalidInput(format!(
+                    "Input at index {} is empty or whitespace",
+                    i
+                )));
+            }
+        }
+
+        // 2. Measure duration
+        let start = Instant::now();
+
+        // 3. Generate embeddings
+        let embeddings = self.embed_batch_internal(request.inputs.clone()).await?;
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        // 4. Calculate token count (approximate)
+        // Rough estimate: ~0.75 tokens per word
+        let total_tokens: usize = request
+            .inputs
+            .iter()
+            .map(|text| {
+                let words = text.split_whitespace().count();
+                ((words as f32) * 0.75) as usize
+            })
+            .sum();
+
+        // 5. Build response
+        Ok(BatchEmbeddingResponse {
+            model: request.model,
+            embeddings,
+            usage: Usage {
+                total_tokens,
+                duration_ms,
+            },
+        })
     }
 
     /// Get model information (dimension, capabilities).
@@ -554,9 +602,40 @@ impl EmbeddingProvider for CandleEmbeddingProvider {
     ///
     /// Ok(()) if healthy, error otherwise
     async fn health_check(&self) -> EmbeddingResult<()> {
-        // TODO: Implement in Day 5 (Task 5.3)
-        // 1. Generate test embedding
-        // 2. Return Ok if successful
-        todo!("Implement health_check in Day 5")
+        // Generate a test embedding to verify the provider is functional
+        let test_embedding = self
+            .embed_batch_internal(vec!["health check".to_string()])
+            .await?;
+
+        // Verify output is not empty
+        if test_embedding.is_empty() {
+            return Err(EmbeddingError::ServiceUnavailable(
+                "Health check failed: no embeddings generated".to_string(),
+            ));
+        }
+
+        // Verify correct dimension
+        if test_embedding[0].len() != self.dimension as usize {
+            return Err(EmbeddingError::ServiceUnavailable(format!(
+                "Health check failed: wrong dimension (expected {}, got {})",
+                self.dimension,
+                test_embedding[0].len()
+            )));
+        }
+
+        // Verify L2 normalized (norm should be approximately 1.0)
+        let norm: f32 = test_embedding[0]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f32>()
+            .sqrt();
+        if (norm - 1.0).abs() > 0.1 {
+            return Err(EmbeddingError::ServiceUnavailable(format!(
+                "Health check failed: embeddings not normalized (norm={})",
+                norm
+            )));
+        }
+
+        Ok(())
     }
 }

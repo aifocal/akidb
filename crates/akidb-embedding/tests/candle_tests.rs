@@ -7,7 +7,9 @@
 
 #[cfg(feature = "candle")]
 mod candle_integration_tests {
-    use akidb_embedding::{CandleEmbeddingProvider, EmbeddingProvider};
+    use akidb_embedding::{
+        BatchEmbeddingRequest, CandleEmbeddingProvider, EmbeddingError, EmbeddingProvider,
+    };
 
     /// Test loading MiniLM model from Hugging Face Hub.
     ///
@@ -349,5 +351,142 @@ mod candle_integration_tests {
         eprintln!("\n   MLX baseline: 182ms (Python + MLX)");
         eprintln!("   Candle: {}ms (Rust + Metal)", single_ms);
         eprintln!("   Speedup: {:.1}x faster than MLX", speedup);
+    }
+
+    /// Test embed_batch() trait method with validation and usage statistics.
+    ///
+    /// Verifies that:
+    /// - embed_batch() trait method works correctly
+    /// - Usage statistics are calculated (duration, tokens)
+    /// - Response format matches BatchEmbeddingResponse
+    #[tokio::test]
+    #[ignore] // Expensive: runs inference
+    async fn test_embed_batch_trait_method() {
+        eprintln!("\n=== Test: embed_batch() Trait Method ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        let request = BatchEmbeddingRequest {
+            model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            inputs: vec!["Hello world".to_string(), "Rust is awesome".to_string()],
+            normalize: false, // Candle always normalizes
+        };
+
+        let response = provider
+            .embed_batch(request)
+            .await
+            .expect("Failed to generate embeddings");
+
+        // Verify response structure
+        assert_eq!(response.embeddings.len(), 2, "Should return 2 embeddings");
+        assert_eq!(
+            response.embeddings[0].len(),
+            384,
+            "MiniLM has 384 dimensions"
+        );
+        assert!(
+            response.usage.duration_ms > 0,
+            "Duration should be recorded"
+        );
+        assert!(response.usage.total_tokens > 0, "Tokens should be estimated");
+
+        eprintln!("\n✅ Test passed: embed_batch() trait method works");
+        eprintln!("   Embeddings: {}", response.embeddings.len());
+        eprintln!("   Duration: {}ms", response.usage.duration_ms);
+        eprintln!("   Tokens: {}", response.usage.total_tokens);
+    }
+
+    /// Test health_check() implementation.
+    ///
+    /// Verifies that:
+    /// - Health check succeeds when provider is healthy
+    /// - Test embedding is generated correctly
+    /// - Dimension and normalization are verified
+    #[tokio::test]
+    #[ignore] // Expensive: runs inference
+    async fn test_trait_health_check() {
+        eprintln!("\n=== Test: health_check() Trait Method ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        provider
+            .health_check()
+            .await
+            .expect("Health check should succeed");
+
+        eprintln!("\n✅ Test passed: health_check() succeeds");
+    }
+
+    /// Test validation: empty input list.
+    ///
+    /// Verifies that embed_batch() rejects empty input lists.
+    #[tokio::test]
+    #[ignore] // Expensive: loads model
+    async fn test_validation_empty_input() {
+        eprintln!("\n=== Test: Validation - Empty Input ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        let request = BatchEmbeddingRequest {
+            model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            inputs: vec![],
+            normalize: false,
+        };
+
+        let result = provider.embed_batch(request).await;
+        assert!(result.is_err(), "Should reject empty input");
+
+        match result {
+            Err(EmbeddingError::InvalidInput(msg)) => {
+                assert!(
+                    msg.contains("Empty"),
+                    "Error message should mention empty input"
+                );
+                eprintln!("✅ Test passed: Empty input rejected with error: {}", msg);
+            }
+            _ => panic!("Wrong error type, expected InvalidInput"),
+        }
+    }
+
+    /// Test validation: batch size exceeds maximum.
+    ///
+    /// Verifies that embed_batch() rejects batches larger than 32.
+    #[tokio::test]
+    #[ignore] // Expensive: loads model
+    async fn test_validation_large_batch() {
+        eprintln!("\n=== Test: Validation - Large Batch ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        let request = BatchEmbeddingRequest {
+            model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            inputs: vec!["text".to_string(); 100], // 100 texts (exceeds limit of 32)
+            normalize: false,
+        };
+
+        let result = provider.embed_batch(request).await;
+        assert!(result.is_err(), "Should reject large batch");
+
+        match result {
+            Err(EmbeddingError::InvalidInput(msg)) => {
+                assert!(
+                    msg.contains("exceeds maximum"),
+                    "Error should mention limit"
+                );
+                eprintln!(
+                    "✅ Test passed: Large batch rejected with error: {}",
+                    msg
+                );
+            }
+            _ => panic!("Wrong error type, expected InvalidInput"),
+        }
     }
 }
