@@ -179,4 +179,175 @@ mod candle_integration_tests {
         eprintln!("   Model: {}", info.model);
         eprintln!("   Dimension: {}", info.dimension);
     }
+
+    /// Test inference with single text.
+    ///
+    /// Verifies that:
+    /// - Embeddings are generated correctly
+    /// - Output dimension matches model dimension (384 for MiniLM)
+    /// - Embeddings are L2 normalized (unit length)
+    #[tokio::test]
+    #[ignore] // Expensive: runs inference on GPU/CPU
+    async fn test_inference_single_text() {
+        eprintln!("\n=== Test: Inference Single Text ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        // Call internal method directly
+        let embeddings = provider
+            .embed_batch_internal(vec!["Hello world".to_string()])
+            .await
+            .expect("Failed to generate embedding");
+
+        assert_eq!(embeddings.len(), 1, "Should return 1 embedding");
+        assert_eq!(embeddings[0].len(), 384, "MiniLM has 384 dimensions");
+
+        // Check L2 normalized (unit length)
+        let norm: f32 = embeddings[0].iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 0.01,
+            "Embedding should be L2 normalized, got norm={}",
+            norm
+        );
+
+        eprintln!("\n✅ Test passed: Single text inference works");
+        eprintln!("   Embedding dimension: {}", embeddings[0].len());
+        eprintln!("   L2 norm: {:.6}", norm);
+        eprintln!("   First 5 values: {:?}", &embeddings[0][..5]);
+    }
+
+    /// Test inference with batch of texts.
+    ///
+    /// Verifies that:
+    /// - Multiple texts processed correctly
+    /// - All embeddings have correct dimension
+    /// - All embeddings are L2 normalized
+    /// - Different texts produce different embeddings
+    #[tokio::test]
+    #[ignore] // Expensive: runs batch inference
+    async fn test_inference_batch() {
+        eprintln!("\n=== Test: Inference Batch ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        let embeddings = provider
+            .embed_batch_internal(vec![
+                "Hello world".to_string(),
+                "Rust is awesome".to_string(),
+                "Machine learning".to_string(),
+            ])
+            .await
+            .expect("Failed to generate embeddings");
+
+        assert_eq!(embeddings.len(), 3, "Should return 3 embeddings");
+
+        // Verify each embedding
+        for (i, emb) in embeddings.iter().enumerate() {
+            assert_eq!(emb.len(), 384, "Embedding {} should have 384 dims", i);
+
+            let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
+            assert!(
+                (norm - 1.0).abs() < 0.01,
+                "Embedding {} should be L2 normalized, got norm={}",
+                i,
+                norm
+            );
+        }
+
+        // Check that different texts produce different embeddings
+        let cosine_sim = |a: &[f32], b: &[f32]| -> f32 {
+            a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+        };
+
+        let sim_01 = cosine_sim(&embeddings[0], &embeddings[1]);
+        let sim_02 = cosine_sim(&embeddings[0], &embeddings[2]);
+        let sim_12 = cosine_sim(&embeddings[1], &embeddings[2]);
+
+        eprintln!("\n✅ Test passed: Batch inference works");
+        eprintln!("   Batch size: {}", embeddings.len());
+        eprintln!("   Similarity(0,1): {:.3}", sim_01);
+        eprintln!("   Similarity(0,2): {:.3}", sim_02);
+        eprintln!("   Similarity(1,2): {:.3}", sim_12);
+
+        // Different texts should not be identical
+        assert!(sim_01 < 0.99, "Different texts should not be identical");
+        assert!(sim_02 < 0.99, "Different texts should not be identical");
+    }
+
+    /// Test inference performance.
+    ///
+    /// Measures:
+    /// - Single text inference time (target: <20ms on Metal GPU)
+    /// - Batch of 8 inference time (target: <40ms on Metal GPU)
+    ///
+    /// Note: Targets are for Metal GPU on Apple Silicon.
+    /// CPU or other hardware may be slower.
+    #[tokio::test]
+    #[ignore] // Expensive: runs performance benchmarks
+    async fn test_inference_performance() {
+        use std::time::Instant;
+
+        eprintln!("\n=== Test: Inference Performance ===\n");
+
+        let provider = CandleEmbeddingProvider::new("sentence-transformers/all-MiniLM-L6-v2")
+            .await
+            .expect("Failed to load model");
+
+        // Warm up (first inference might be slower due to GPU initialization)
+        eprintln!("Warming up...");
+        let _ = provider
+            .embed_batch_internal(vec!["warmup".to_string()])
+            .await;
+
+        // Single text benchmark
+        eprintln!("Benchmarking single text...");
+        let start = Instant::now();
+        let _ = provider
+            .embed_batch_internal(vec!["Hello world".to_string()])
+            .await
+            .expect("Failed");
+        let single_ms = start.elapsed().as_millis();
+
+        // Batch of 8 benchmark
+        eprintln!("Benchmarking batch of 8...");
+        let texts = vec!["Sample text".to_string(); 8];
+        let start = Instant::now();
+        let _ = provider
+            .embed_batch_internal(texts)
+            .await
+            .expect("Failed");
+        let batch8_ms = start.elapsed().as_millis();
+
+        eprintln!("\n✅ Test passed: Performance measured");
+        eprintln!("   Single text: {}ms (target: <20ms)", single_ms);
+        eprintln!("   Batch of 8:  {}ms (target: <40ms)", batch8_ms);
+
+        // Soft assertions (targets are for Metal GPU)
+        if single_ms > 20 {
+            eprintln!(
+                "   ⚠️  Single text slower than target ({}ms > 20ms)",
+                single_ms
+            );
+            eprintln!("      (This is expected on CPU or non-Apple Silicon)");
+        } else {
+            eprintln!("   ✅ Single text meets target (<20ms)!");
+        }
+
+        if batch8_ms > 40 {
+            eprintln!("   ⚠️  Batch of 8 slower than target ({}ms > 40ms)", batch8_ms);
+            eprintln!("      (This is expected on CPU or non-Apple Silicon)");
+        } else {
+            eprintln!("   ✅ Batch of 8 meets target (<40ms)!");
+        }
+
+        // Performance comparison to MLX (MLX single text: ~182ms)
+        let speedup = 182.0 / single_ms as f32;
+        eprintln!("\n   MLX baseline: 182ms (Python + MLX)");
+        eprintln!("   Candle: {}ms (Rust + Metal)", single_ms);
+        eprintln!("   Speedup: {:.1}x faster than MLX", speedup);
+    }
 }

@@ -312,16 +312,146 @@ impl CandleEmbeddingProvider {
     /// - Single text: <20ms (Metal GPU)
     /// - Batch of 8: <40ms (Metal GPU)
     /// - Batch of 32: <100ms (Metal GPU)
-    async fn embed_batch_internal(
+    pub async fn embed_batch_internal(
         &self,
-        _texts: Vec<String>,
+        texts: Vec<String>,
     ) -> EmbeddingResult<Vec<Vec<f32>>> {
-        // TODO: Implement in Day 3 (Task 3.1-3.2)
-        // 1. Tokenize texts
-        // 2. Run forward pass (GPU/CPU)
-        // 3. Mean pooling
-        // 4. Convert to Vec<Vec<f32>>
-        todo!("Implement inference in Day 3")
+        use candle_core::Tensor;
+
+        // Validate input
+        if texts.is_empty() {
+            return Err(EmbeddingError::InvalidInput("Empty input".to_string()));
+        }
+
+        // 1. Tokenization
+        let encodings: Vec<_> = texts
+            .iter()
+            .map(|text| {
+                self.tokenizer
+                    .encode(text.as_str(), true)
+                    .map_err(|e| EmbeddingError::Internal(format!("Tokenization: {}", e)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        const MAX_LENGTH: usize = 512;
+        let batch_size = texts.len();
+
+        let mut token_ids_batch = Vec::new();
+        let mut attention_masks_batch = Vec::new();
+
+        for encoding in encodings {
+            let mut ids = encoding.get_ids().to_vec();
+            let mut mask = encoding.get_attention_mask().to_vec();
+
+            // Pad or truncate to MAX_LENGTH
+            if ids.len() > MAX_LENGTH {
+                ids.truncate(MAX_LENGTH);
+                mask.truncate(MAX_LENGTH);
+            } else {
+                ids.resize(MAX_LENGTH, 0);
+                mask.resize(MAX_LENGTH, 0);
+            }
+
+            token_ids_batch.push(ids);
+            attention_masks_batch.push(mask);
+        }
+
+        // 2. Convert to tensors
+        let token_ids_flat: Vec<u32> = token_ids_batch
+            .iter()
+            .flat_map(|ids| ids.iter().copied())
+            .collect();
+
+        let attention_mask_flat: Vec<u32> = attention_masks_batch
+            .iter()
+            .flat_map(|mask| mask.iter().copied())
+            .collect();
+
+        let token_ids_tensor = Tensor::from_vec(token_ids_flat, &[batch_size, MAX_LENGTH], &self.device)
+            .map_err(|e| EmbeddingError::Internal(format!("Token tensor: {}", e)))?;
+
+        let attention_mask_tensor =
+            Tensor::from_vec(attention_mask_flat, &[batch_size, MAX_LENGTH], &self.device)
+                .map_err(|e| EmbeddingError::Internal(format!("Mask tensor: {}", e)))?;
+
+        // 3. BERT forward pass
+        // Create token_type_ids (all zeros for single-sentence tasks)
+        let token_type_ids = Tensor::zeros(&[batch_size, MAX_LENGTH], candle_core::DType::U32, &self.device)
+            .map_err(|e| EmbeddingError::Internal(format!("Token type IDs: {}", e)))?;
+
+        // model.forward() returns embeddings: (batch_size, seq_len, hidden_size)
+        // Third parameter is position_ids (None = use default positions)
+        let embeddings = self
+            .model
+            .forward(&token_ids_tensor, &token_type_ids, None)
+            .map_err(|e| EmbeddingError::Internal(format!("Forward pass: {}", e)))?;
+
+        // 4. Mean pooling
+        // Expand attention mask to (batch_size, seq_len, 1) then broadcast to (batch_size, seq_len, hidden_size)
+        let attention_mask_expanded = attention_mask_tensor
+            .unsqueeze(2)
+            .map_err(|e| EmbeddingError::Internal(format!("Unsqueeze mask: {}", e)))?
+            .to_dtype(candle_core::DType::F32)
+            .map_err(|e| EmbeddingError::Internal(format!("Mask to F32: {}", e)))?
+            .broadcast_as(embeddings.shape())
+            .map_err(|e| EmbeddingError::Internal(format!("Broadcast mask: {}", e)))?;
+
+        // Multiply embeddings by mask (zero out padding tokens)
+        let masked_embeddings = embeddings
+            .mul(&attention_mask_expanded)
+            .map_err(|e| EmbeddingError::Internal(format!("Mask embeddings: {}", e)))?;
+
+        // Sum over sequence length (axis 1)
+        let sum_embeddings = masked_embeddings
+            .sum(1)
+            .map_err(|e| EmbeddingError::Internal(format!("Sum embeddings: {}", e)))?;
+
+        // Sum attention mask over sequence length
+        let sum_mask = attention_mask_expanded
+            .sum(1)
+            .map_err(|e| EmbeddingError::Internal(format!("Sum mask: {}", e)))?
+            .clamp(1e-9, f32::MAX)
+            .map_err(|e| EmbeddingError::Internal(format!("Clamp mask: {}", e)))?;
+
+        // Divide to get mean
+        let mean_pooled = sum_embeddings
+            .div(&sum_mask)
+            .map_err(|e| EmbeddingError::Internal(format!("Mean pooling: {}", e)))?;
+
+        // 5. L2 normalization
+        let squared = mean_pooled
+            .sqr()
+            .map_err(|e| EmbeddingError::Internal(format!("Square: {}", e)))?;
+
+        let sum_squared = squared
+            .sum(1)
+            .map_err(|e| EmbeddingError::Internal(format!("Sum squared: {}", e)))?;
+
+        let l2_norm = sum_squared
+            .sqrt()
+            .map_err(|e| EmbeddingError::Internal(format!("Sqrt: {}", e)))?
+            .unsqueeze(1)
+            .map_err(|e| EmbeddingError::Internal(format!("Unsqueeze norm: {}", e)))?
+            .clamp(1e-12, f32::MAX)
+            .map_err(|e| EmbeddingError::Internal(format!("Clamp norm: {}", e)))?
+            .broadcast_as(mean_pooled.shape())
+            .map_err(|e| EmbeddingError::Internal(format!("Broadcast norm: {}", e)))?;
+
+        let normalized = mean_pooled
+            .div(&l2_norm)
+            .map_err(|e| EmbeddingError::Internal(format!("Normalize: {}", e)))?;
+
+        // 6. Convert to Vec<Vec<f32>>
+        let normalized_cpu = normalized
+            .to_device(&Device::Cpu)
+            .map_err(|e| EmbeddingError::Internal(format!("To CPU: {}", e)))?;
+
+        // Convert 2D tensor (batch_size, hidden_size) to Vec<Vec<f32>>
+        let embeddings: Vec<Vec<f32>> = normalized_cpu
+            .to_vec2()
+            .map_err(|e| EmbeddingError::Internal(format!("To vec: {}", e)))?;
+
+        Ok(embeddings)
     }
 
     /// Select device (Metal > CUDA > CPU priority).
@@ -336,13 +466,18 @@ impl CandleEmbeddingProvider {
     ///
     /// Selected device (never fails, CPU is fallback)
     fn select_device() -> EmbeddingResult<Device> {
-        // Try Metal on macOS
+        // TEMPORARY: Use CPU due to Metal layer-norm limitation in Candle
+        // TODO: Re-enable Metal when candle-transformers supports it fully
+        // See: https://github.com/huggingface/candle/issues
+
+        // Try Metal on macOS (DISABLED due to layer-norm issue)
         #[cfg(target_os = "macos")]
         {
-            if let Ok(device) = Device::new_metal(0) {
-                eprintln!("✅ Using Metal GPU (macOS)");
-                return Ok(device);
-            }
+            // if let Ok(device) = Device::new_metal(0) {
+            //     eprintln!("✅ Using Metal GPU (macOS)");
+            //     return Ok(device);
+            // }
+            eprintln!("⚠️  Using CPU (Metal has limited layer-norm support)");
         }
 
         // Try CUDA on Linux/Windows
@@ -354,8 +489,13 @@ impl CandleEmbeddingProvider {
             }
         }
 
-        // Fallback to CPU
+        // Fallback to CPU (currently required for macOS)
+        #[cfg(target_os = "macos")]
+        eprintln!("   Using CPU for BERT inference");
+
+        #[cfg(not(target_os = "macos"))]
         eprintln!("⚠️  Using CPU (GPU unavailable)");
+
         Ok(Device::Cpu)
     }
 }
