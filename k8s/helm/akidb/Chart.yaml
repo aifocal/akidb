@@ -1,0 +1,38 @@
+apiVersion: v2
+name: akidb
+description: A Helm chart for AkiDB - ARM-optimized vector database
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - vector-database
+  - machine-learning
+  - embeddings
+  - arm
+  - edge-computing
+  - hnsw
+  - semantic-search
+
+maintainers:
+  - name: AkiDB Team
+    email: team@akidb.com
+    url: https://github.com/yourusername/akidb2
+
+home: https://github.com/yourusername/akidb2
+sources:
+  - https://github.com/yourusername/akidb2
+
+icon: https://raw.githubusercontent.com/yourusername/akidb2/main/docs/logo.png
+
+dependencies: []
+
+annotations:
+  # Category for artifact hub
+  category: Database
+  # License
+  licenses: Apache-2.0
+  # Images used by this chart
+  images: |
+    - name: akidb
+      image: ghcr.io/yourusername/akidb2:2.0.0

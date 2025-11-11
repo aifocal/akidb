@@ -1,0 +1,316 @@
+# Default values for akidb
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of AkiDB replicas
+replicaCount: 3
+
+image:
+  repository: ghcr.io/yourusername/akidb2
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "2.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: "OnRootMismatch"
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  rest:
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  grpc:
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  # Annotations for the service (e.g., for cloud load balancers)
+  annotations: {}
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # For gRPC support
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: akidb.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: rest
+  tls:
+    - secretName: akidb-tls
+      hosts:
+        - akidb.example.com
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+  requests:
+    cpu: 2000m
+    memory: 4Gi
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  # Optional: custom metrics
+  # customMetrics:
+  #   - type: Pods
+  #     pods:
+  #       metric:
+  #         name: akidb_http_requests_per_second
+  #       target:
+  #         type: AverageValue
+  #         averageValue: "1000"
+
+# Persistence configuration
+persistence:
+  enabled: true
+  # Storage class for persistent volumes
+  # Use fast SSD for warm tier storage
+  storageClass: "fast-ssd"
+  accessMode: ReadWriteOnce
+  size: 100Gi
+  # Annotations for PVCs
+  annotations: {}
+  # Mount path for data
+  mountPath: /data
+
+# AkiDB configuration
+config:
+  # Logging configuration
+  logLevel: info
+  logFormat: json
+
+  # Database configuration
+  database:
+    path: "/data/metadata.db"
+    # SQLite PRAGMA settings
+    journalMode: "WAL"
+    synchronous: "NORMAL"
+    cacheSize: 10000
+
+  # Hot tier configuration (RAM)
+  hotTier:
+    maxMemoryBytes: 8589934592  # 8 GB
+    maxCollections: 1000
+
+  # Warm tier configuration (Local SSD)
+  warmTier:
+    path: "/data/warm"
+    maxSizeBytes: 107374182400  # 100 GB
+
+  # Cold tier configuration (S3/MinIO)
+  coldTier:
+    enabled: true
+    type: s3  # or "minio"
+    bucket: "akidb-cold"
+    region: "us-west-2"
+    # Optional: custom endpoint for MinIO
+    # endpoint: "http://minio:9000"
+    # Prefix for multi-tenancy
+    prefix: "akidb/"
+
+  # Tiering policy configuration
+  tiering:
+    enabled: true
+    # Demote to warm after 1 hour of inactivity
+    demotionIdleThreshold: "1h"
+    # Promote to hot after 100 accesses
+    promotionAccessThreshold: 100
+    # Background worker interval
+    workerInterval: "5m"
+
+  # Observability configuration
+  observability:
+    metricsEnabled: true
+    tracingEnabled: true
+    # Jaeger endpoint (optional)
+    jaegerEndpoint: ""
+    # Sampling rate (0.0-1.0)
+    tracingSampleRate: 0.1
+
+# S3/MinIO credentials (stored in Kubernetes Secret)
+s3:
+  # AWS access key ID or MinIO access key
+  accessKeyId: ""
+  # AWS secret access key or MinIO secret key
+  secretAccessKey: ""
+  # Optional: session token for temporary credentials
+  sessionToken: ""
+  # Optional: endpoint URL for MinIO
+  endpoint: ""
+
+# Node selector for pod placement
+nodeSelector: {}
+  # Example: Deploy only on ARM nodes
+  # kubernetes.io/arch: arm64
+
+# Tolerations for pod scheduling
+tolerations: []
+  # Example: Tolerate ARM taint
+  # - key: "arm"
+  #   operator: "Equal"
+  #   value: "true"
+  #   effect: "NoSchedule"
+
+# Affinity rules for pod placement
+affinity:
+  # Prefer spreading pods across nodes for high availability
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - akidb
+          topologyKey: kubernetes.io/hostname
+  # Optional: Node affinity for ARM nodes
+  # nodeAffinity:
+  #   preferredDuringSchedulingIgnoredDuringExecution:
+  #     - weight: 100
+  #       preference:
+  #         matchExpressions:
+  #           - key: kubernetes.io/arch
+  #             operator: In
+  #             values:
+  #               - arm64
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  # Ensure at least 2 pods are always available
+  minAvailable: 2
+  # Alternatively, use maxUnavailable
+  # maxUnavailable: 1
+
+# Liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+# Update strategy
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0  # For StatefulSet, typically 0
+
+# Priority class name (optional)
+priorityClassName: ""
+
+# Additional environment variables
+extraEnv: []
+  # - name: CUSTOM_VAR
+  #   value: "custom-value"
+
+# Additional volumes
+extraVolumes: []
+  # - name: extra-config
+  #   configMap:
+  #     name: extra-config
+
+# Additional volume mounts
+extraVolumeMounts: []
+  # - name: extra-config
+  #   mountPath: /etc/extra
+
+# Init containers (optional)
+initContainers: []
+  # - name: init-permissions
+  #   image: busybox
+  #   command: ['sh', '-c', 'chown -R 1000:1000 /data']
+  #   volumeMounts:
+  #     - name: data
+  #       mountPath: /data
+
+# Sidecar containers (optional)
+sidecars: []
+  # - name: log-forwarder
+  #   image: fluent/fluent-bit:latest
+  #   # ... configuration
+
+# Service monitor for Prometheus Operator
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  # relabelings: []
+  # metricRelabelings: []
+
+# Network policy
+networkPolicy:
+  enabled: false
+  # Ingress rules
+  ingress: []
+  # Egress rules
+  egress: []
+
+# Pod labels
+podLabels: {}
+
+# Pod termination grace period
+terminationGracePeriodSeconds: 30

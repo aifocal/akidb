@@ -19,11 +19,21 @@ async-trait = "0.1"
 parking_lot = "0.12"
 rand = "0.8"
 instant-distance = "0.6"
+loom = { version = "0.7", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
 rand = "0.8"
+futures = "0.3"  # For block_on in loom tests
+proptest = "1.5"  # Property-based testing
+
+[features]
+loom = ["loom/checkpoint"]
+
+[[test]]
+name = "loom_concurrency"
+required-features = ["loom"]
 
 [[bench]]
 name = "index_bench"

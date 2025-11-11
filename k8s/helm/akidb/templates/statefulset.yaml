@@ -1,0 +1,233 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "akidb.fullname" . }}
+  labels:
+    {{- include "akidb.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "akidb.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "akidb.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "akidb.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "akidb.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: akidb
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.rest.targetPort }}
+          protocol: {{ .Values.service.rest.protocol }}
+        - name: grpc
+          containerPort: {{ .Values.service.grpc.targetPort }}
+          protocol: {{ .Values.service.grpc.protocol }}
+        env:
+        # Server configuration
+        - name: AKIDB_HOST
+          value: "0.0.0.0"
+        - name: AKIDB_REST_PORT
+          value: "{{ .Values.service.rest.targetPort }}"
+        - name: AKIDB_GRPC_PORT
+          value: "{{ .Values.service.grpc.targetPort }}"
+
+        # Logging configuration
+        - name: AKIDB_LOG_LEVEL
+          value: {{ .Values.config.logLevel | quote }}
+        - name: AKIDB_LOG_FORMAT
+          value: {{ .Values.config.logFormat | quote }}
+
+        # Database configuration
+        - name: AKIDB_DB_PATH
+          value: {{ .Values.config.database.path | quote }}
+
+        # Hot tier configuration
+        - name: AKIDB_HOT_TIER_MAX_MEMORY_BYTES
+          value: "{{ .Values.config.hotTier.maxMemoryBytes }}"
+        - name: AKIDB_HOT_TIER_MAX_COLLECTIONS
+          value: "{{ .Values.config.hotTier.maxCollections }}"
+
+        # Warm tier configuration
+        - name: AKIDB_WARM_TIER_PATH
+          value: {{ .Values.config.warmTier.path | quote }}
+        - name: AKIDB_WARM_TIER_MAX_SIZE_BYTES
+          value: "{{ .Values.config.warmTier.maxSizeBytes }}"
+
+        # Cold tier configuration
+        {{- if .Values.config.coldTier.enabled }}
+        - name: AKIDB_COLD_TIER_ENABLED
+          value: "true"
+        - name: AKIDB_COLD_TIER_TYPE
+          value: {{ .Values.config.coldTier.type | quote }}
+        - name: AKIDB_COLD_TIER_BUCKET
+          value: {{ .Values.config.coldTier.bucket | quote }}
+        - name: AKIDB_COLD_TIER_REGION
+          value: {{ .Values.config.coldTier.region | quote }}
+        {{- if .Values.config.coldTier.prefix }}
+        - name: AKIDB_COLD_TIER_PREFIX
+          value: {{ .Values.config.coldTier.prefix | quote }}
+        {{- end }}
+        {{- if .Values.config.coldTier.endpoint }}
+        - name: AKIDB_COLD_TIER_ENDPOINT
+          value: {{ .Values.config.coldTier.endpoint | quote }}
+        {{- end }}
+        {{- end }}
+
+        # Tiering policy configuration
+        {{- if .Values.config.tiering.enabled }}
+        - name: AKIDB_TIERING_ENABLED
+          value: "true"
+        - name: AKIDB_TIERING_DEMOTION_IDLE_THRESHOLD
+          value: {{ .Values.config.tiering.demotionIdleThreshold | quote }}
+        - name: AKIDB_TIERING_PROMOTION_ACCESS_THRESHOLD
+          value: "{{ .Values.config.tiering.promotionAccessThreshold }}"
+        - name: AKIDB_TIERING_WORKER_INTERVAL
+          value: {{ .Values.config.tiering.workerInterval | quote }}
+        {{- end }}
+
+        # Observability configuration
+        - name: AKIDB_METRICS_ENABLED
+          value: "{{ .Values.config.observability.metricsEnabled }}"
+        - name: AKIDB_TRACING_ENABLED
+          value: "{{ .Values.config.observability.tracingEnabled }}"
+        {{- if .Values.config.observability.jaegerEndpoint }}
+        - name: AKIDB_JAEGER_ENDPOINT
+          value: {{ .Values.config.observability.jaegerEndpoint | quote }}
+        {{- end }}
+        - name: AKIDB_TRACING_SAMPLE_RATE
+          value: "{{ .Values.config.observability.tracingSampleRate }}"
+
+        # S3 credentials from secret
+        {{- if .Values.config.coldTier.enabled }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "akidb.secretName" . }}
+              key: access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "akidb.secretName" . }}
+              key: secret-access-key
+        {{- if .Values.s3.sessionToken }}
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "akidb.secretName" . }}
+              key: session-token
+        {{- end }}
+        {{- end }}
+
+        {{- with .Values.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
+        volumeMounts:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          mountPath: {{ .Values.persistence.mountPath }}
+        {{- end }}
+        - name: config
+          mountPath: /etc/akidb
+          readOnly: true
+        # Temporary directory (read-only root filesystem requires this)
+        - name: tmp
+          mountPath: /tmp
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
+        {{- with .Values.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+
+        {{- with .Values.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+
+      {{- with .Values.sidecars }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "akidb.configMapName" . }}
+      - name: tmp
+        emptyDir: {}
+      {{- with .Values.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      {{- with .Values.persistence.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      accessModes:
+        - {{ .Values.persistence.accessMode }}
+      {{- if .Values.persistence.storageClass }}
+      storageClassName: {{ .Values.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.size }}
+  {{- end }}

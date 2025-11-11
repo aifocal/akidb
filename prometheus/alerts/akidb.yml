@@ -1,0 +1,195 @@
+groups:
+  - name: akidb_critical
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(akidb_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(akidb_http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High HTTP error rate: {{ $value | humanizePercentage }}"
+          description: "HTTP 5xx error rate exceeds 5% threshold for more than 5 minutes"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/high-error-rate.md"
+
+      - alert: S3ErrorRateHigh
+        expr: |
+          sum(rate(akidb_s3_operations_total{status="error"}[5m]))
+          /
+          sum(rate(akidb_s3_operations_total[5m]))
+          > 0.10
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "S3 error rate: {{ $value | humanizePercentage }}"
+          description: "S3 operation error rate exceeds 10% for more than 5 minutes"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/s3-errors.md"
+
+      - alert: CircuitBreakerOpen
+        expr: akidb_circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Circuit breaker is OPEN"
+          description: "S3 circuit breaker has opened due to high error rate"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/circuit-breaker.md"
+
+      - alert: ServiceDown
+        expr: up{job="akidb-rest"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "AkiDB service is down"
+          description: "REST API is unreachable for more than 1 minute"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/service-down.md"
+
+  - name: akidb_warning
+    interval: 1m
+    rules:
+      - alert: HighSearchLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(akidb_vector_search_duration_seconds_bucket[5m])
+          ) > 0.025
+        for: 10m
+        labels:
+          severity: warning
+          component: search
+        annotations:
+          summary: "P95 search latency: {{ $value | humanizeDuration }}"
+          description: "Vector search P95 latency exceeds 25ms target for more than 10 minutes"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/high-latency.md"
+
+      - alert: MemoryPressure
+        expr: |
+          sum(akidb_memory_usage_bytes{component="hot_tier"})
+          / (8 * 1024 * 1024 * 1024)
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: "Hot tier memory at {{ $value | humanizePercentage }}"
+          description: "Hot tier memory usage exceeds 85% of 8GB limit"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/memory-pressure.md"
+
+      - alert: DLQGrowing
+        expr: |
+          sum(akidb_dlq_size) > 50
+          and
+          deriv(akidb_dlq_size[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "DLQ size: {{ $value }} entries and growing"
+          description: "Dead Letter Queue has more than 50 entries and is growing"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/dlq-growing.md"
+
+      - alert: S3HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(akidb_s3_operation_duration_seconds_bucket{operation="put"}[5m])
+          ) > 2.0
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "S3 PUT P95 latency: {{ $value | humanizeDuration }}"
+          description: "S3 upload latency exceeds 2 seconds for more than 10 minutes"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/s3-latency.md"
+
+      - alert: BackgroundWorkerErrors
+        expr: |
+          sum(rate(akidb_background_worker_runs_total{status="error"}[5m]))
+          /
+          sum(rate(akidb_background_worker_runs_total[5m]))
+          > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          component: workers
+        annotations:
+          summary: "Background worker error rate: {{ $value | humanizePercentage }}"
+          description: "Background workers experiencing >10% error rate"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/worker-errors.md"
+
+      - alert: SlowSnapshots
+        expr: |
+          histogram_quantile(0.95,
+            rate(akidb_s3_operation_duration_seconds_bucket{operation="snapshot"}[30m])
+          ) > 30.0
+        for: 30m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Snapshot P95 duration: {{ $value | humanizeDuration }}"
+          description: "Snapshot operations taking longer than 30 seconds"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/slow-snapshots.md"
+
+      - alert: TierImbalance
+        expr: |
+          (akidb_tier_distribution_collections{tier="hot"}
+          /
+          sum(akidb_tier_distribution_collections)) > 0.50
+        for: 30m
+        labels:
+          severity: warning
+          component: tiering
+        annotations:
+          summary: "Hot tier at {{ $value | humanizePercentage }} of total collections"
+          description: "More than 50% of collections are in hot tier, consider rebalancing"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/tier-imbalance.md"
+
+      - alert: WALSizeHigh
+        expr: sum(akidb_wal_size_bytes) / 1024 / 1024 > 100
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "WAL size: {{ $value | humanize }}MB"
+          description: "Write-Ahead Log exceeds 100MB, compaction may be needed"
+          runbook_url: "https://github.com/yourusername/akidb2/docs/runbooks/wal-size-high.md"
+
+  - name: akidb_info
+    interval: 5m
+    rules:
+      - alert: HighRequestVolume
+        expr: sum(rate(akidb_http_requests_total[5m])) > 100
+        for: 15m
+        labels:
+          severity: info
+          component: api
+        annotations:
+          summary: "Request volume: {{ $value | humanize }} req/s"
+          description: "API receiving more than 100 requests/sec for 15 minutes"
+
+      - alert: LowCacheHitRate
+        expr: |
+          100 * sum(rate(akidb_cache_hits_total[10m]))
+          /
+          (sum(rate(akidb_cache_hits_total[10m])) + sum(rate(akidb_cache_misses_total[10m])))
+          < 50
+        for: 30m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "Cache hit rate: {{ $value | humanizePercentage }}"
+          description: "Cache hit rate below 50% for more than 30 minutes"

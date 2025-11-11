@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "akidb.fullname" . }}
+  labels:
+    {{- include "akidb.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.rest.port }}
+      targetPort: http
+      protocol: {{ .Values.service.rest.protocol }}
+      name: http
+    - port: {{ .Values.service.grpc.port }}
+      targetPort: grpc
+      protocol: {{ .Values.service.grpc.protocol }}
+      name: grpc
+  selector:
+    {{- include "akidb.selectorLabels" . | nindent 4 }}
+---
+# Headless service for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "akidb.fullname" . }}-headless
+  labels:
+    {{- include "akidb.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.rest.port }}
+      targetPort: http
+      protocol: {{ .Values.service.rest.protocol }}
+      name: http
+    - port: {{ .Values.service.grpc.port }}
+      targetPort: grpc
+      protocol: {{ .Values.service.grpc.protocol }}
+      name: grpc
+  selector:
+    {{- include "akidb.selectorLabels" . | nindent 4 }}

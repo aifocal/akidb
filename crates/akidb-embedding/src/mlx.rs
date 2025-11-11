@@ -56,15 +56,18 @@ impl MlxEmbeddingProvider {
             let path = sys
                 .getattr("path")
                 .map_err(|e| EmbeddingError::Internal(format!("Failed to get sys.path: {e}")))?;
-            let path: &pyo3::Bound<'_, PyList> = path
-                .downcast()
-                .map_err(|e| EmbeddingError::Internal(format!("Failed to downcast sys.path: {e}")))?;
+            let path: &pyo3::Bound<'_, PyList> = path.downcast().map_err(|e| {
+                EmbeddingError::Internal(format!("Failed to downcast sys.path: {e}"))
+            })?;
 
             // Find the Python module directory (relative to this crate)
             let module_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
-            path.insert(0, module_path.to_str().ok_or_else(|| {
-                EmbeddingError::Internal("Invalid module path".to_string())
-            })?)
+            path.insert(
+                0,
+                module_path
+                    .to_str()
+                    .ok_or_else(|| EmbeddingError::Internal("Invalid module path".to_string()))?,
+            )
             .map_err(|e| {
                 EmbeddingError::Internal(format!("Failed to add module to sys.path: {e}"))
             })?;
@@ -86,20 +89,26 @@ impl MlxEmbeddingProvider {
             })?;
 
             // Get model info to determine dimension
-            let model_info = service.call_method0("get_model_info").map_err(|e| {
-                EmbeddingError::Internal(format!("Failed to get model info: {e}"))
-            })?;
+            let model_info = service
+                .call_method0("get_model_info")
+                .map_err(|e| EmbeddingError::Internal(format!("Failed to get model info: {e}")))?;
 
-            let info_dict = model_info.downcast::<PyDict>().map_err(|e| {
-                EmbeddingError::Internal(format!("Invalid model info format: {e}"))
-            })?;
+            let info_dict = model_info
+                .downcast::<PyDict>()
+                .map_err(|e| EmbeddingError::Internal(format!("Invalid model info format: {e}")))?;
 
             let dimension: u32 = info_dict
                 .get_item("dimension")
-                .and_then(|opt| opt.ok_or_else(|| pyo3::PyErr::new::<pyo3::exceptions::PyKeyError, _>("dimension not found")))
+                .and_then(|opt| {
+                    opt.ok_or_else(|| {
+                        pyo3::PyErr::new::<pyo3::exceptions::PyKeyError, _>("dimension not found")
+                    })
+                })
                 .and_then(|dim| dim.extract::<u32>())
                 .map_err(|e| {
-                    EmbeddingError::Internal(format!("Failed to get dimension from model info: {e}"))
+                    EmbeddingError::Internal(format!(
+                        "Failed to get dimension from model info: {e}"
+                    ))
                 })?;
 
             println!("[MlxEmbeddingProvider] Initialized with model: {model_name}, dimension: {dimension}");

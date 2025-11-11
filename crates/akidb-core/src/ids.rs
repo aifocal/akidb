@@ -88,11 +88,12 @@ define_id!(
     UserId,
     "Unique identifier for an authenticated user within a tenant."
 );
-define_id!(
-    AuditLogId,
-    "Unique identifier for an audit log entry."
-);
+define_id!(AuditLogId, "Unique identifier for an audit log entry.");
 define_id!(
     DocumentId,
     "Unique identifier for a vector document within a collection."
+);
+define_id!(
+    ApiKeyId,
+    "Unique identifier for an API key used for authentication."
 );

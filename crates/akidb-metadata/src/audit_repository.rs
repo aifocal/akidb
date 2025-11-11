@@ -110,25 +110,51 @@ impl AuditLogRepository for SqliteAuditLogRepository {
 
 /// Parse an audit log row from SQLite.
 fn parse_audit_log_row(row: &sqlx::sqlite::SqliteRow) -> CoreResult<AuditLogEntry> {
-    let audit_log_id_bytes: Vec<u8> = row.try_get("audit_log_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let tenant_id_bytes: Vec<u8> = row.try_get("tenant_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let user_id_bytes: Option<Vec<u8>> = row.try_get("user_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let action_str: String = row.try_get("action").map_err(|e| CoreError::internal(e.to_string()))?;
-    let resource_type: String = row.try_get("resource_type").map_err(|e| CoreError::internal(e.to_string()))?;
-    let resource_id: String = row.try_get("resource_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let result_str: String = row.try_get("result").map_err(|e| CoreError::internal(e.to_string()))?;
-    let reason: Option<String> = row.try_get("reason").map_err(|e| CoreError::internal(e.to_string()))?;
-    let metadata_str: Option<String> = row.try_get("metadata").map_err(|e| CoreError::internal(e.to_string()))?;
-    let ip_address: Option<String> = row.try_get("ip_address").map_err(|e| CoreError::internal(e.to_string()))?;
-    let user_agent: Option<String> = row.try_get("user_agent").map_err(|e| CoreError::internal(e.to_string()))?;
-    let created_at_str: String = row.try_get("created_at").map_err(|e| CoreError::internal(e.to_string()))?;
+    let audit_log_id_bytes: Vec<u8> = row
+        .try_get("audit_log_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let tenant_id_bytes: Vec<u8> = row
+        .try_get("tenant_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let user_id_bytes: Option<Vec<u8>> = row
+        .try_get("user_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let action_str: String = row
+        .try_get("action")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let resource_type: String = row
+        .try_get("resource_type")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let resource_id: String = row
+        .try_get("resource_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let result_str: String = row
+        .try_get("result")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let reason: Option<String> = row
+        .try_get("reason")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let metadata_str: Option<String> = row
+        .try_get("metadata")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let ip_address: Option<String> = row
+        .try_get("ip_address")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let user_agent: Option<String> = row
+        .try_get("user_agent")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let created_at_str: String = row
+        .try_get("created_at")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
 
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_err(|e| CoreError::internal(e.to_string()))?
         .with_timezone(&Utc);
 
-    let audit_log_id = AuditLogId::from_bytes(&audit_log_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
-    let tenant_id = TenantId::from_bytes(&tenant_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
+    let audit_log_id = AuditLogId::from_bytes(&audit_log_id_bytes)
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let tenant_id =
+        TenantId::from_bytes(&tenant_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
     let user_id = user_id_bytes
         .map(|bytes| UserId::from_bytes(&bytes))
         .transpose()

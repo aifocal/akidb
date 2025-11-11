@@ -1,0 +1,31 @@
+[package]
+name = "akidb-service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+akidb-core = { path = "../akidb-core" }
+akidb-embedding = { path = "../akidb-embedding" }
+akidb-index = { path = "../akidb-index" }
+akidb-metadata = { path = "../akidb-metadata" }
+akidb-storage = { path = "../akidb-storage" }
+tokio = { workspace = true, features = ["sync"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+toml = "0.8"
+prometheus = { workspace = true }
+lazy_static = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-jaeger = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+
+[dev-dependencies]
+sqlx = { workspace = true }
+async-trait = "0.1"
+tempfile = "3.8"

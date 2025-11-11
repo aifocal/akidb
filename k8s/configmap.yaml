@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: akidb-config
+  namespace: akidb
+  labels:
+    app: akidb
+data:
+  RUST_LOG: "info"
+  AKIDB_HOST: "0.0.0.0"
+  AKIDB_GRPC_PORT: "9090"
+  AKIDB_REST_PORT: "8080"
+  AKIDB_DB_PATH: "sqlite:///data/akidb/metadata.db"
+  AKIDB_METRICS_ENABLED: "true"
+  AKIDB_VECTOR_PERSISTENCE_ENABLED: "true"
+  AKIDB_LOG_FORMAT: "json"
+  AKIDB_LOG_LEVEL: "info"

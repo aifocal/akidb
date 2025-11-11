@@ -1,0 +1,59 @@
+# Grafana Datasource Provisioning for Prometheus
+# Auto-configures Prometheus as the default datasource
+# Compatible with Docker Compose deployment
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+    # Basic authentication (disabled by default)
+    # basicAuth: false
+    # basicAuthUser: admin
+    # basicAuthPassword: password
+
+    # JSON data for Prometheus-specific settings
+    jsonData:
+      # Query timeout (seconds)
+      queryTimeout: '60s'
+
+      # Time interval for Prometheus queries
+      timeInterval: '15s'
+
+      # HTTP method for queries (GET or POST)
+      httpMethod: 'POST'
+
+      # Custom query parameters
+      customQueryParameters: ''
+
+      # Enable exemplars (for tracing integration - Day 4)
+      # exemplarTraceIdDestinations:
+      #   - datasourceUid: tempo
+      #     name: trace_id
+
+    # Version (optional)
+    version: 1
+
+    # UID (optional - for consistent datasource references)
+    uid: prometheus-akidb
+
+    # Organization ID (1 = default org)
+    orgId: 1
+
+    # Read-only mode (false = editable)
+    editable: true
+
+  # Jaeger datasource for distributed tracing (Day 4)
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    uid: jaeger-akidb
+    editable: true
+    isDefault: false
+    orgId: 1

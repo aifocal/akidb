@@ -1,0 +1,311 @@
+name: Load Tests
+
+on:
+  # Run on pushes to main
+  push:
+    branches: [main]
+
+  # Run on pull requests
+  pull_request:
+    branches: [main]
+
+  # Run weekly on Sunday at midnight UTC
+  schedule:
+    - cron: '0 0 * * 0'
+
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - smoke
+          - quick
+          - full
+
+jobs:
+  # Smoke test - runs on every PR and push (30 seconds)
+  smoke-test:
+    name: Smoke Test (30s)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run smoke test
+        run: |
+          cargo test --release -p akidb-storage smoke_test_load_framework -- --nocapture
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Upload smoke test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: smoke-test-results
+          path: target/load_test_reports/
+          retention-days: 7
+
+  # Quick load tests - runs on schedule and manual trigger (45 minutes)
+  quick-load-tests:
+    name: Quick Load Tests (45 min)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.test_suite != 'smoke'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - scenario_1_baseline_quick
+          - scenario_2_sustained_load_quick
+          - scenario_3_spike_load_quick
+          - scenario_4_tiered_storage_quick
+          - scenario_5_multi_tenant_quick
+          - scenario_6_large_dataset_quick
+          - scenario_7_failure_injection_quick
+          - scenario_8_mixed_chaos_quick
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run ${{ matrix.scenario }}
+        run: |
+          cargo test --release -p akidb-storage ${{ matrix.scenario }} -- --nocapture
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: load-test-reports-${{ matrix.scenario }}
+          path: target/load_test_reports/
+          retention-days: 30
+
+  # Full load tests - runs only on manual trigger with "full" option (4+ hours)
+  full-load-tests:
+    name: Full Load Tests (4+ hours)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.test_suite == 'full'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - scenario_1_baseline
+          - scenario_2_sustained_load
+          - scenario_3_spike_load
+          - scenario_4_tiered_storage
+          - scenario_5_multi_tenant
+          - scenario_6_large_dataset
+          - scenario_7_failure_injection
+          - scenario_8_mixed_chaos
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run ${{ matrix.scenario }}
+        run: |
+          cargo test --release -p akidb-storage ${{ matrix.scenario }} -- --ignored --nocapture
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: full-load-test-reports-${{ matrix.scenario }}
+          path: target/load_test_reports/
+          retention-days: 90
+
+  # Aggregate results and check for regressions
+  check-results:
+    name: Check Load Test Results
+    runs-on: ubuntu-latest
+    needs: [quick-load-tests]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test reports
+        uses: actions/download-artifact@v3
+        with:
+          path: all-reports
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Check for test failures
+        run: |
+          echo "Checking load test results..."
+          failed=0
+
+          for report in all-reports/*/load_test_reports/*.json; do
+            if [ -f "$report" ]; then
+              status=$(jq -r '.status' "$report")
+              scenario=$(jq -r '.scenario' "$report")
+
+              if [ "$status" != "passed" ]; then
+                echo "❌ FAILED: $scenario"
+                echo "   Report: $report"
+                jq -r '.success_criteria.failures[]' "$report" | sed 's/^/     - /'
+                failed=1
+              else
+                echo "✅ PASSED: $scenario"
+              fi
+            fi
+          done
+
+          if [ $failed -eq 1 ]; then
+            echo ""
+            echo "❌ Some load tests failed. See details above."
+            exit 1
+          else
+            echo ""
+            echo "✅ All load tests passed!"
+          fi
+
+      - name: Performance regression check
+        run: |
+          echo "Checking for performance regressions..."
+
+          # This is a placeholder for performance regression detection
+          # In a real implementation, you would:
+          # 1. Store baseline metrics in a database or S3
+          # 2. Compare current metrics against baseline
+          # 3. Alert if P95 latency increased by >20%
+          # 4. Alert if throughput decreased by >10%
+          # 5. Alert if error rate increased by >2x
+
+          echo "Performance regression check: SKIPPED (not implemented)"
+          echo "To implement:"
+          echo "  - Store baseline metrics from main branch"
+          echo "  - Compare P95 latency, throughput, error rate"
+          echo "  - Fail if metrics regressed beyond thresholds"
+
+      - name: Upload aggregated results
+        uses: actions/upload-artifact@v3
+        with:
+          name: all-load-test-results
+          path: all-reports/
+          retention-days: 90
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            let comment = '## 🚀 Load Test Results\n\n';
+            comment += '| Scenario | Status | P95 Latency | Throughput | Error Rate |\n';
+            comment += '|----------|--------|-------------|------------|------------|\n';
+
+            const reportDirs = fs.readdirSync('all-reports');
+            for (const dir of reportDirs) {
+              const reportsPath = path.join('all-reports', dir, 'load_test_reports');
+              if (fs.existsSync(reportsPath)) {
+                const files = fs.readdirSync(reportsPath).filter(f => f.endsWith('.json'));
+                for (const file of files) {
+                  const report = JSON.parse(fs.readFileSync(path.join(reportsPath, file)));
+                  const statusEmoji = report.status === 'passed' ? '✅' : '❌';
+                  const p95 = (report.latency_ms.p95).toFixed(2);
+                  const qps = (report.throughput_qps).toFixed(1);
+                  const errorPct = (report.error_rate * 100).toFixed(2);
+
+                  comment += `| ${report.scenario} | ${statusEmoji} | ${p95}ms | ${qps} QPS | ${errorPct}% |\n`;
+                }
+              }
+            }
+
+            comment += '\n<details><summary>View full reports</summary>\n\n';
+            comment += 'Download artifacts from the workflow run for detailed reports.\n';
+            comment += '</details>';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

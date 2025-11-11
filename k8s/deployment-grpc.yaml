@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: akidb-grpc
+  namespace: akidb
+  labels:
+    app: akidb-grpc
+    component: grpc-server
+    version: 2.0.0-rc1
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: akidb-grpc
+  template:
+    metadata:
+      labels:
+        app: akidb-grpc
+        component: grpc-server
+        version: 2.0.0-rc1
+      annotations:
+        prometheus.io/scrape: "false"  # gRPC server doesn't expose metrics
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - akidb-grpc
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: akidb-grpc
+          image: akidb/akidb-grpc:2.0.0-rc1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: akidb-config
+          volumeMounts:
+            - name: akidb-data
+              mountPath: /data/akidb
+            - name: akidb-logs
+              mountPath: /var/log/akidb
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "grpcurl -plaintext localhost:9090 grpc.health.v1.Health/Check || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "grpcurl -plaintext localhost:9090 grpc.health.v1.Health/Check || exit 1"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: akidb-data
+          persistentVolumeClaim:
+            claimName: akidb-pvc
+        - name: akidb-logs
+          emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

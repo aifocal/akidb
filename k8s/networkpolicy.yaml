@@ -1,0 +1,97 @@
+# Network policies for enhanced security
+# Only apply if your CNI supports NetworkPolicy (Calico, Cilium, etc.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: akidb-grpc-netpol
+  namespace: akidb
+spec:
+  podSelector:
+    matchLabels:
+      app: akidb-grpc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from application namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: application
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow traffic from same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow internal traffic
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: akidb-rest-netpol
+  namespace: akidb
+spec:
+  podSelector:
+    matchLabels:
+      app: akidb-rest
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow traffic from application namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: application
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow traffic from same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow internal traffic
+    - to:
+        - podSelector: {}

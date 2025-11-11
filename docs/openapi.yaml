@@ -1,0 +1,812 @@
+openapi: 3.0.3
+info:
+  title: AkiDB 2.0 REST API
+  description: |
+    AkiDB 2.0 is a RAM-first vector database optimized for ARM edge devices with built-in
+    embedding services, S3/MinIO tiered storage, and enterprise-grade multi-tenancy with RBAC.
+
+    This REST API provides vector database operations including collection management,
+    vector insertion, similarity search, and document retrieval.
+
+    **Features:**
+    - Vector similarity search (cosine, L2, dot product)
+    - HNSW indexing for efficient approximate nearest neighbor search
+    - Collection management with automatic persistence
+    - Document-level CRUD operations
+    - Prometheus metrics endpoint
+
+    **Base URL:** `http://localhost:8080`
+
+    **API Version:** RC1 (v0.1.0)
+  version: 0.1.0
+  contact:
+    name: AkiDB Support
+    url: https://github.com/yourusername/akidb2
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: http://localhost:8080/api/v1
+    description: API v1 base path
+
+tags:
+  - name: health
+    description: Server health and status endpoints
+  - name: collections
+    description: Collection management operations
+  - name: vectors
+    description: Vector document operations (insert, query, get, delete)
+  - name: metrics
+    description: Prometheus metrics endpoint
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status and version of the AkiDB server
+      operationId: healthCheck
+      tags:
+        - health
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  value:
+                    status: "healthy"
+                    version: "0.1.0"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: |
+        Returns Prometheus-formatted metrics for monitoring and observability.
+        Includes collection counts, vector operation latencies, and system metrics.
+      operationId: getMetrics
+      tags:
+        - metrics
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP akidb_collections_total Total number of collections
+                  # TYPE akidb_collections_total gauge
+                  akidb_collections_total 5
+
+                  # HELP akidb_vectors_total Total number of vectors across all collections
+                  # TYPE akidb_vectors_total gauge
+                  akidb_vectors_total 10000
+        '503':
+          description: Metrics not available (service not configured with persistence)
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # Metrics not available
+                  # Service was not created with full persistence
+
+  /api/v1/collections:
+    post:
+      summary: Create a new collection
+      description: |
+        Creates a new vector collection with specified dimension and distance metric.
+        Collections are automatically persisted to SQLite and survive server restarts.
+      operationId: createCollection
+      tags:
+        - collections
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCollectionRequest'
+            examples:
+              cosine_512d:
+                summary: 512-dimensional cosine similarity
+                value:
+                  name: "embeddings_512"
+                  dimension: 512
+                  metric: "cosine"
+                  embedding_model: "text-embedding-3-small"
+              l2_128d:
+                summary: 128-dimensional L2 distance
+                value:
+                  name: "image_vectors"
+                  dimension: 128
+                  metric: "l2"
+      responses:
+        '201':
+          description: Collection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCollectionResponse'
+              examples:
+                success:
+                  value:
+                    collection_id: "018f1234-5678-7abc-def0-123456789abc"
+                    name: "embeddings_512"
+                    dimension: 512
+                    metric: "cosine"
+        '400':
+          description: Invalid request (e.g., invalid dimension, metric, or empty name)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_metric:
+                  value:
+                    error: "invalid metric: 'euclidean', must be one of: cosine, l2, dot"
+                invalid_dimension:
+                  value:
+                    error: "dimension must be between 16 and 4096"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List all collections
+      description: |
+        Returns a list of all collections in the database with their metadata.
+        Includes collection ID, name, dimension, metric, and document count.
+      operationId: listCollections
+      tags:
+        - collections
+      responses:
+        '200':
+          description: List of collections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCollectionsResponse'
+              examples:
+                multiple_collections:
+                  value:
+                    collections:
+                      - collection_id: "018f1234-5678-7abc-def0-123456789abc"
+                        name: "embeddings_512"
+                        dimension: 512
+                        metric: "cosine"
+                        document_count: 1000
+                        created_at: "2024-11-07T10:30:00Z"
+                      - collection_id: "018f1234-5678-7abc-def0-987654321def"
+                        name: "image_vectors"
+                        dimension: 128
+                        metric: "l2"
+                        document_count: 500
+                        created_at: "2024-11-07T11:15:00Z"
+                empty:
+                  value:
+                    collections: []
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/collections/{collection_id}:
+    get:
+      summary: Get collection details
+      description: |
+        Retrieves detailed information about a specific collection including
+        its current document count.
+      operationId: getCollection
+      tags:
+        - collections
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '200':
+          description: Collection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCollectionResponse'
+              examples:
+                success:
+                  value:
+                    collection:
+                      collection_id: "018f1234-5678-7abc-def0-123456789abc"
+                      name: "embeddings_512"
+                      dimension: 512
+                      metric: "cosine"
+                      document_count: 1000
+                      created_at: "2024-11-07T10:30:00Z"
+        '400':
+          description: Invalid collection_id format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a collection
+      description: |
+        Permanently deletes a collection and all its vectors. This operation cannot be undone.
+        The collection is removed from both memory and SQLite persistence.
+      operationId: deleteCollection
+      tags:
+        - collections
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      responses:
+        '204':
+          description: Collection deleted successfully (no content)
+        '400':
+          description: Invalid collection_id format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/collections/{collection_id}/query:
+    post:
+      summary: Query vectors (similarity search)
+      description: |
+        Performs vector similarity search using the specified query vector.
+        Returns the top-k most similar vectors based on the collection's distance metric.
+
+        **Performance:** P95 latency <25ms @ 100k vectors (512-dim, ARM)
+      operationId: queryVectors
+      tags:
+        - vectors
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              top_10:
+                summary: Search for 10 nearest neighbors
+                value:
+                  query_vector: [0.1, 0.2, 0.3, 0.4, 0.5]
+                  top_k: 10
+              top_100:
+                summary: Search for 100 nearest neighbors
+                value:
+                  query_vector: [0.1, 0.2, 0.3, 0.4, 0.5]
+                  top_k: 100
+      responses:
+        '200':
+          description: Query results with matches and latency
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+              examples:
+                with_matches:
+                  value:
+                    matches:
+                      - doc_id: "018f5678-1234-7abc-def0-111111111111"
+                        external_id: "user-doc-123"
+                        distance: 0.92
+                      - doc_id: "018f5678-1234-7abc-def0-222222222222"
+                        external_id: "user-doc-456"
+                        distance: 0.87
+                    latency_ms: 12.5
+                no_matches:
+                  value:
+                    matches: []
+                    latency_ms: 8.3
+        '400':
+          description: Invalid request (e.g., empty query_vector, invalid collection_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/collections/{collection_id}/insert:
+    post:
+      summary: Insert a vector document
+      description: |
+        Inserts a new vector document into the collection. The document is automatically
+        persisted to SQLite and indexed in memory for fast search.
+
+        **Note:** doc_id must be a valid UUID v7. You can use the provided value or
+        generate a new one client-side.
+      operationId: insertVector
+      tags:
+        - vectors
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsertRequest'
+            examples:
+              with_external_id:
+                summary: Insert with external ID
+                value:
+                  doc_id: "018f5678-1234-7abc-def0-123456789abc"
+                  external_id: "user-doc-123"
+                  vector: [0.1, 0.2, 0.3, 0.4, 0.5]
+              without_external_id:
+                summary: Insert without external ID
+                value:
+                  doc_id: "018f5678-1234-7abc-def0-123456789abc"
+                  vector: [0.1, 0.2, 0.3, 0.4, 0.5]
+      responses:
+        '200':
+          description: Vector inserted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResponse'
+              examples:
+                success:
+                  value:
+                    doc_id: "018f5678-1234-7abc-def0-123456789abc"
+                    latency_ms: 5.2
+        '400':
+          description: Invalid request (e.g., empty vector, invalid doc_id/collection_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/collections/{collection_id}/docs/{doc_id}:
+    get:
+      summary: Get a vector document
+      description: |
+        Retrieves a specific vector document by its doc_id. Returns the full document
+        including vector, external_id, and insertion timestamp.
+      operationId: getVector
+      tags:
+        - vectors
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+        - $ref: '#/components/parameters/DocId'
+      responses:
+        '200':
+          description: Document retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetResponse'
+              examples:
+                found:
+                  value:
+                    document:
+                      doc_id: "018f5678-1234-7abc-def0-123456789abc"
+                      external_id: "user-doc-123"
+                      vector: [0.1, 0.2, 0.3, 0.4, 0.5]
+                      inserted_at: "2024-11-07T10:30:00Z"
+                not_found:
+                  value:
+                    document: null
+        '400':
+          description: Invalid doc_id or collection_id format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a vector document
+      description: |
+        Permanently deletes a vector document from the collection. The document is removed
+        from both the in-memory index and SQLite persistence.
+      operationId: deleteVector
+      tags:
+        - vectors
+      parameters:
+        - $ref: '#/components/parameters/CollectionId'
+        - $ref: '#/components/parameters/DocId'
+      responses:
+        '200':
+          description: Document deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+              examples:
+                success:
+                  value:
+                    latency_ms: 3.1
+        '400':
+          description: Invalid doc_id or collection_id format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Collection or document not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    CollectionId:
+      name: collection_id
+      in: path
+      required: true
+      description: UUID v7 of the collection
+      schema:
+        type: string
+        format: uuid
+        example: "018f1234-5678-7abc-def0-123456789abc"
+
+    DocId:
+      name: doc_id
+      in: path
+      required: true
+      description: UUID v7 of the document
+      schema:
+        type: string
+        format: uuid
+        example: "018f5678-1234-7abc-def0-123456789abc"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+      properties:
+        status:
+          type: string
+          description: Health status of the server
+          example: "healthy"
+        version:
+          type: string
+          description: AkiDB version
+          example: "0.1.0"
+
+    CreateCollectionRequest:
+      type: object
+      required:
+        - name
+        - dimension
+        - metric
+      properties:
+        name:
+          type: string
+          description: Name of the collection (must be unique per database)
+          example: "embeddings_512"
+          minLength: 1
+        dimension:
+          type: integer
+          description: Dimensionality of vectors in this collection
+          minimum: 16
+          maximum: 4096
+          example: 512
+        metric:
+          type: string
+          description: Distance metric for similarity search
+          enum: [cosine, l2, dot]
+          example: "cosine"
+        embedding_model:
+          type: string
+          description: Optional embedding model identifier
+          example: "text-embedding-3-small"
+          nullable: true
+
+    CreateCollectionResponse:
+      type: object
+      required:
+        - collection_id
+        - name
+        - dimension
+        - metric
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+          description: UUID v7 of the created collection
+          example: "018f1234-5678-7abc-def0-123456789abc"
+        name:
+          type: string
+          example: "embeddings_512"
+        dimension:
+          type: integer
+          example: 512
+        metric:
+          type: string
+          example: "cosine"
+
+    ListCollectionsResponse:
+      type: object
+      required:
+        - collections
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionInfo'
+
+    CollectionInfo:
+      type: object
+      required:
+        - collection_id
+        - name
+        - dimension
+        - metric
+        - document_count
+        - created_at
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+          example: "018f1234-5678-7abc-def0-123456789abc"
+        name:
+          type: string
+          example: "embeddings_512"
+        dimension:
+          type: integer
+          example: 512
+        metric:
+          type: string
+          enum: [cosine, l2, dot]
+          example: "cosine"
+        document_count:
+          type: integer
+          format: int64
+          description: Number of documents in the collection
+          example: 1000
+        created_at:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of collection creation
+          example: "2024-11-07T10:30:00Z"
+
+    GetCollectionResponse:
+      type: object
+      required:
+        - collection
+      properties:
+        collection:
+          $ref: '#/components/schemas/CollectionInfo'
+
+    QueryRequest:
+      type: object
+      required:
+        - query_vector
+        - top_k
+      properties:
+        query_vector:
+          type: array
+          items:
+            type: number
+            format: float
+          description: Query vector (must match collection dimension)
+          example: [0.1, 0.2, 0.3, 0.4, 0.5]
+          minItems: 1
+        top_k:
+          type: integer
+          description: Number of nearest neighbors to return
+          minimum: 1
+          example: 10
+
+    QueryResponse:
+      type: object
+      required:
+        - matches
+        - latency_ms
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchResult'
+          description: List of matching documents sorted by distance (best first)
+        latency_ms:
+          type: number
+          format: double
+          description: Query execution time in milliseconds
+          example: 12.5
+
+    MatchResult:
+      type: object
+      required:
+        - doc_id
+        - distance
+      properties:
+        doc_id:
+          type: string
+          format: uuid
+          description: UUID v7 of the matched document
+          example: "018f5678-1234-7abc-def0-123456789abc"
+        external_id:
+          type: string
+          description: Optional user-provided identifier
+          nullable: true
+          example: "user-doc-123"
+        distance:
+          type: number
+          format: float
+          description: |
+            Distance/similarity score. Interpretation depends on metric:
+            - cosine: 0.0 (dissimilar) to 1.0 (identical)
+            - l2: 0.0 (identical) to infinity (dissimilar)
+            - dot: higher values indicate greater similarity
+          example: 0.92
+
+    InsertRequest:
+      type: object
+      required:
+        - doc_id
+        - vector
+      properties:
+        doc_id:
+          type: string
+          format: uuid
+          description: UUID v7 for the document (client-generated)
+          example: "018f5678-1234-7abc-def0-123456789abc"
+        external_id:
+          type: string
+          description: Optional user-provided identifier (for mapping to external systems)
+          nullable: true
+          example: "user-doc-123"
+        vector:
+          type: array
+          items:
+            type: number
+            format: float
+          description: Dense vector embedding (must match collection dimension)
+          example: [0.1, 0.2, 0.3, 0.4, 0.5]
+          minItems: 1
+
+    InsertResponse:
+      type: object
+      required:
+        - doc_id
+        - latency_ms
+      properties:
+        doc_id:
+          type: string
+          format: uuid
+          description: UUID v7 of the inserted document
+          example: "018f5678-1234-7abc-def0-123456789abc"
+        latency_ms:
+          type: number
+          format: double
+          description: Insert execution time in milliseconds
+          example: 5.2
+
+    GetResponse:
+      type: object
+      required:
+        - document
+      properties:
+        document:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/VectorDocumentResponse'
+          description: The document if found, null otherwise
+
+    VectorDocumentResponse:
+      type: object
+      required:
+        - doc_id
+        - vector
+        - inserted_at
+      properties:
+        doc_id:
+          type: string
+          format: uuid
+          example: "018f5678-1234-7abc-def0-123456789abc"
+        external_id:
+          type: string
+          nullable: true
+          example: "user-doc-123"
+        vector:
+          type: array
+          items:
+            type: number
+            format: float
+          example: [0.1, 0.2, 0.3, 0.4, 0.5]
+        inserted_at:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of document insertion
+          example: "2024-11-07T10:30:00Z"
+
+    DeleteResponse:
+      type: object
+      required:
+        - latency_ms
+      properties:
+        latency_ms:
+          type: number
+          format: double
+          description: Delete execution time in milliseconds
+          example: 3.1
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "Collection not found"

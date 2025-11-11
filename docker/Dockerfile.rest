@@ -1,0 +1,86 @@
+# Multi-stage build for AkiDB REST server
+# Optimized for production deployment with minimal image size
+
+# Stage 1: Build environment
+FROM rust:1.75-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy manifests and required build files
+COPY Cargo.toml Cargo.lock ./
+COPY crates/akidb-core/Cargo.toml ./crates/akidb-core/
+COPY crates/akidb-metadata/Cargo.toml ./crates/akidb-metadata/
+COPY crates/akidb-metadata/migrations/ ./crates/akidb-metadata/migrations/
+COPY crates/akidb-embedding/Cargo.toml ./crates/akidb-embedding/
+COPY crates/akidb-index/Cargo.toml ./crates/akidb-index/
+COPY crates/akidb-proto/Cargo.toml ./crates/akidb-proto/
+COPY crates/akidb-proto/build.rs ./crates/akidb-proto/
+COPY crates/akidb-proto/proto/ ./crates/akidb-proto/proto/
+COPY crates/akidb-service/Cargo.toml ./crates/akidb-service/
+COPY crates/akidb-grpc/Cargo.toml ./crates/akidb-grpc/
+COPY crates/akidb-rest/Cargo.toml ./crates/akidb-rest/
+COPY crates/akidb-cli/Cargo.toml ./crates/akidb-cli/
+
+# Build dependencies only (cached layer)
+RUN mkdir -p crates/akidb-core/src crates/akidb-metadata/src \
+    crates/akidb-embedding/src crates/akidb-index/src \
+    crates/akidb-proto/src crates/akidb-service/src \
+    crates/akidb-rest/src crates/akidb-grpc/src crates/akidb-cli/src && \
+    echo "fn main() {}" > crates/akidb-rest/src/main.rs && \
+    echo "fn main() {}" > crates/akidb-grpc/src/main.rs && \
+    echo "fn main() {}" > crates/akidb-cli/src/main.rs && \
+    echo "// dummy" > crates/akidb-core/src/lib.rs && \
+    echo "// dummy" > crates/akidb-metadata/src/lib.rs && \
+    echo "// dummy" > crates/akidb-embedding/src/lib.rs && \
+    echo "// dummy" > crates/akidb-index/src/lib.rs && \
+    echo "// dummy" > crates/akidb-proto/src/lib.rs && \
+    echo "// dummy" > crates/akidb-service/src/lib.rs && \
+    cargo build --release -p akidb-rest && \
+    rm -rf crates/*/src
+
+# Copy source code
+COPY crates/ ./crates/
+
+# Build actual application
+RUN cargo build --release -p akidb-rest
+
+# Stage 2: Runtime environment
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r akidb && useradd -r -g akidb akidb
+
+# Create data directory
+RUN mkdir -p /data/akidb /var/log/akidb && \
+    chown -R akidb:akidb /data/akidb /var/log/akidb
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/akidb-rest /usr/local/bin/akidb-rest
+
+# Switch to non-root user
+USER akidb
+
+# Expose REST port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Set default command (use environment variables for configuration)
+CMD ["akidb-rest"]

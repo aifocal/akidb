@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 
 use crate::audit::AuditLogEntry;
+use crate::auth::ApiKeyDescriptor;
 use crate::collection::CollectionDescriptor;
 use crate::database::DatabaseDescriptor;
 use crate::error::CoreResult;
-use crate::ids::{CollectionId, DatabaseId, DocumentId, TenantId, UserId};
+use crate::ids::{ApiKeyId, CollectionId, DatabaseId, DocumentId, TenantId, UserId};
 use crate::tenant::TenantDescriptor;
 use crate::user::UserDescriptor;
 use crate::vector::{SearchResult, VectorDocument};
@@ -120,6 +121,30 @@ pub trait AuditLogRepository: Send + Sync {
         limit: usize,
         offset: usize,
     ) -> CoreResult<Vec<AuditLogEntry>>;
+}
+
+/// Repository interface for API key management.
+#[async_trait]
+pub trait ApiKeyRepository: Send + Sync {
+    /// Creates a new API key entry.
+    /// The key_hash should be a SHA-256 hash of the plaintext API key.
+    async fn create(&self, api_key: &ApiKeyDescriptor, key_hash: &str) -> CoreResult<()>;
+
+    /// Retrieves an API key by its identifier.
+    async fn get(&self, key_id: ApiKeyId) -> CoreResult<Option<ApiKeyDescriptor>>;
+
+    /// Retrieves an API key by its hash.
+    /// Used during authentication to validate API keys.
+    async fn get_by_hash(&self, key_hash: &str) -> CoreResult<Option<ApiKeyDescriptor>>;
+
+    /// Lists all API keys for a tenant ordered by creation time.
+    async fn list_by_tenant(&self, tenant_id: TenantId) -> CoreResult<Vec<ApiKeyDescriptor>>;
+
+    /// Deletes an API key (revocation).
+    async fn delete(&self, key_id: ApiKeyId) -> CoreResult<()>;
+
+    /// Updates the last_used_at timestamp for an API key.
+    async fn update_last_used(&self, key_id: ApiKeyId) -> CoreResult<()>;
 }
 
 /// Vector index trait for insert, search, and delete operations.

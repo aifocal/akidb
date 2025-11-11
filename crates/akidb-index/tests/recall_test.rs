@@ -66,14 +66,13 @@ async fn test_hnsw_recall_100_vectors() {
     }
 
     let avg_recall = total_recall / n_queries as f64;
-    println!("Average recall@{} for {} vectors: {:.3}", k, n_vectors, avg_recall);
+    println!(
+        "Average recall@{} for {} vectors: {:.3}",
+        k, n_vectors, avg_recall
+    );
 
     // HNSW should achieve >80% recall at this scale
-    assert!(
-        avg_recall > 0.8,
-        "Recall too low: {:.3} < 0.8",
-        avg_recall
-    );
+    assert!(avg_recall > 0.8, "Recall too low: {:.3} < 0.8", avg_recall);
 }
 
 #[tokio::test]
@@ -119,14 +118,13 @@ async fn test_hnsw_recall_1000_vectors() {
     }
 
     let avg_recall = total_recall / n_queries as f64;
-    println!("Average recall@{} for {} vectors: {:.3}", k, n_vectors, avg_recall);
+    println!(
+        "Average recall@{} for {} vectors: {:.3}",
+        k, n_vectors, avg_recall
+    );
 
     // HNSW should achieve >90% recall with ef_search=256
-    assert!(
-        avg_recall > 0.9,
-        "Recall too low: {:.3} < 0.9",
-        avg_recall
-    );
+    assert!(avg_recall > 0.9, "Recall too low: {:.3} < 0.9", avg_recall);
 }
 
 #[tokio::test]

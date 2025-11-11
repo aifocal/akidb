@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 
 use crate::provider::EmbeddingProvider;
-use crate::types::{BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingError, EmbeddingResult, ModelInfo, Usage};
+use crate::types::{
+    BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingError, EmbeddingResult, ModelInfo,
+    Usage,
+};
 
 /// Mock embedding provider for testing.
 ///
@@ -113,12 +116,17 @@ impl Default for MockEmbeddingProvider {
 
 #[async_trait]
 impl EmbeddingProvider for MockEmbeddingProvider {
-    async fn embed_batch(&self, request: BatchEmbeddingRequest) -> EmbeddingResult<BatchEmbeddingResponse> {
+    async fn embed_batch(
+        &self,
+        request: BatchEmbeddingRequest,
+    ) -> EmbeddingResult<BatchEmbeddingResponse> {
         let start = Instant::now();
 
         // Validate inputs
         if request.inputs.is_empty() {
-            return Err(EmbeddingError::InvalidInput("empty input batch".to_string()));
+            return Err(EmbeddingError::InvalidInput(
+                "empty input batch".to_string(),
+            ));
         }
 
         // Validate model matches
@@ -142,7 +150,11 @@ impl EmbeddingProvider for MockEmbeddingProvider {
             .collect();
 
         // Calculate usage
-        let total_tokens = request.inputs.iter().map(|text| Self::estimate_tokens(text)).sum();
+        let total_tokens = request
+            .inputs
+            .iter()
+            .map(|text| Self::estimate_tokens(text))
+            .sum();
         let duration_ms = start.elapsed().as_millis() as u64;
 
         Ok(BatchEmbeddingResponse {

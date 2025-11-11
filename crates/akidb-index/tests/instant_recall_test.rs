@@ -32,7 +32,7 @@ async fn test_instant_distance_recall_100_vectors() {
     // Create indices
     let bf_index = BruteForceIndex::new(dim, DistanceMetric::Cosine);
     let instant_config = InstantDistanceConfig::balanced(dim, DistanceMetric::Cosine);
-    let instant_index = InstantDistanceIndex::new(instant_config);
+    let instant_index = InstantDistanceIndex::new(instant_config).unwrap();
 
     // Insert same vectors into both indices
     for _ in 0..n_vectors {
@@ -43,6 +43,9 @@ async fn test_instant_distance_recall_100_vectors() {
         bf_index.insert(doc.clone()).await.unwrap();
         instant_index.insert(doc).await.unwrap();
     }
+
+    // Rebuild instant-distance index before searching
+    instant_index.force_rebuild().await.unwrap();
 
     // Query with 10 random vectors
     let mut total_recall = 0.0;
@@ -87,7 +90,7 @@ async fn test_instant_distance_recall_1000_vectors() {
     // Create indices
     let bf_index = BruteForceIndex::new(dim, DistanceMetric::Cosine);
     let instant_config = InstantDistanceConfig::balanced(dim, DistanceMetric::Cosine);
-    let instant_index = InstantDistanceIndex::new(instant_config);
+    let instant_index = InstantDistanceIndex::new(instant_config).unwrap();
 
     // Insert same vectors into both indices
     for _ in 0..n_vectors {
@@ -98,6 +101,9 @@ async fn test_instant_distance_recall_1000_vectors() {
         bf_index.insert(doc.clone()).await.unwrap();
         instant_index.insert(doc).await.unwrap();
     }
+
+    // Rebuild instant-distance index before searching
+    instant_index.force_rebuild().await.unwrap();
 
     // Query with 5 random vectors (fewer to keep test fast)
     let mut total_recall = 0.0;
@@ -142,7 +148,7 @@ async fn test_instant_distance_l2_metric_recall() {
     // Create indices with L2 metric
     let bf_index = BruteForceIndex::new(dim, DistanceMetric::L2);
     let instant_config = InstantDistanceConfig::balanced(dim, DistanceMetric::L2);
-    let instant_index = InstantDistanceIndex::new(instant_config);
+    let instant_index = InstantDistanceIndex::new(instant_config).unwrap();
 
     // Insert vectors
     for _ in 0..n_vectors {
@@ -153,6 +159,9 @@ async fn test_instant_distance_l2_metric_recall() {
         bf_index.insert(doc.clone()).await.unwrap();
         instant_index.insert(doc).await.unwrap();
     }
+
+    // Rebuild instant-distance index before searching
+    instant_index.force_rebuild().await.unwrap();
 
     // Query
     let query = random_vector(dim);
@@ -182,7 +191,7 @@ async fn test_instant_distance_high_recall_config() {
     // Create indices - use high_recall config
     let bf_index = BruteForceIndex::new(dim, DistanceMetric::Cosine);
     let instant_config = InstantDistanceConfig::high_recall(dim, DistanceMetric::Cosine);
-    let instant_index = InstantDistanceIndex::new(instant_config);
+    let instant_index = InstantDistanceIndex::new(instant_config).unwrap();
 
     // Insert vectors
     for _ in 0..n_vectors {
@@ -193,6 +202,9 @@ async fn test_instant_distance_high_recall_config() {
         bf_index.insert(doc.clone()).await.unwrap();
         instant_index.insert(doc).await.unwrap();
     }
+
+    // Rebuild instant-distance index before searching
+    instant_index.force_rebuild().await.unwrap();
 
     // Query
     let query = random_vector(dim);
@@ -213,9 +225,5 @@ async fn test_instant_distance_high_recall_config() {
     );
 
     // High recall config should achieve >97% recall
-    assert!(
-        recall > 0.97,
-        "High recall config recall: {:.3}",
-        recall
-    );
+    assert!(recall > 0.97, "High recall config recall: {:.3}", recall);
 }

@@ -53,6 +53,16 @@ impl VectorDocument {
         self
     }
 
+    /// Sets a specific insertion timestamp (builder pattern).
+    ///
+    /// This is primarily for deserialization/retrieval operations.
+    /// Most users should rely on the default `Utc::now()` from `new()`.
+    #[must_use]
+    pub fn with_timestamp(mut self, inserted_at: DateTime<Utc>) -> Self {
+        self.inserted_at = inserted_at;
+        self
+    }
+
     /// Returns the dimension of the vector.
     #[must_use]
     pub fn dimension(&self) -> usize {
@@ -184,7 +194,10 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![1.0, 2.0, 3.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - 1.0).abs() < 1e-6, "Identical vectors should have cosine similarity of 1.0");
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "Identical vectors should have cosine similarity of 1.0"
+        );
     }
 
     #[test]
@@ -192,7 +205,10 @@ mod tests {
         let a = vec![1.0, 0.0];
         let b = vec![0.0, 1.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - 0.0).abs() < 1e-6, "Orthogonal vectors should have cosine similarity of 0.0");
+        assert!(
+            (sim - 0.0).abs() < 1e-6,
+            "Orthogonal vectors should have cosine similarity of 0.0"
+        );
     }
 
     #[test]
@@ -200,7 +216,10 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![1.0, 2.0, 3.0];
         let dist = euclidean_distance(&a, &b);
-        assert!((dist - 0.0).abs() < 1e-6, "Identical vectors should have Euclidean distance of 0.0");
+        assert!(
+            (dist - 0.0).abs() < 1e-6,
+            "Identical vectors should have Euclidean distance of 0.0"
+        );
     }
 
     #[test]
@@ -225,7 +244,10 @@ mod tests {
         let a = vec![1.0, 0.0];
         let b = vec![0.0, 1.0];
         let dot = dot_product(&a, &b);
-        assert!((dot - 0.0).abs() < 1e-6, "Orthogonal vectors should have dot product of 0.0");
+        assert!(
+            (dot - 0.0).abs() < 1e-6,
+            "Orthogonal vectors should have dot product of 0.0"
+        );
     }
 
     #[test]

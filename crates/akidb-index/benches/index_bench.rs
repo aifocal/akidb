@@ -1,4 +1,7 @@
 //! Performance benchmarks for vector index implementations.
+//!
+//! BUG-7 FIX: Updated to use modern Criterion API (0.4+)
+//! The deprecated `to_async()` method has been replaced with `block_on()` inside `iter()`.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
@@ -13,7 +16,6 @@ fn generate_random_vector(dim: usize) -> Vec<f32> {
 
 fn bench_brute_force_search_1k(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
-
     let index = BruteForceIndex::new(512, DistanceMetric::Cosine);
 
     // Insert 1k vectors
@@ -28,16 +30,17 @@ fn bench_brute_force_search_1k(c: &mut Criterion) {
     let query = generate_random_vector(512);
 
     c.bench_function("brute_force_search_1k_512d", |b| {
-        b.to_async(&runtime).iter(|| async {
-            let results = index.search(black_box(&query), 10, None).await.unwrap();
-            black_box(results);
+        b.iter(|| {
+            runtime.block_on(async {
+                let results = index.search(black_box(&query), 10, None).await.unwrap();
+                black_box(results)
+            })
         });
     });
 }
 
 fn bench_brute_force_search_10k(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
-
     let index = BruteForceIndex::new(512, DistanceMetric::Cosine);
 
     // Insert 10k vectors
@@ -52,23 +55,26 @@ fn bench_brute_force_search_10k(c: &mut Criterion) {
     let query = generate_random_vector(512);
 
     c.bench_function("brute_force_search_10k_512d", |b| {
-        b.to_async(&runtime).iter(|| async {
-            let results = index.search(black_box(&query), 10, None).await.unwrap();
-            black_box(results);
+        b.iter(|| {
+            runtime.block_on(async {
+                let results = index.search(black_box(&query), 10, None).await.unwrap();
+                black_box(results)
+            })
         });
     });
 }
 
 fn bench_brute_force_insert(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let index = BruteForceIndex::new(512, DistanceMetric::Cosine);
+    let vec = generate_random_vector(512);
 
     c.bench_function("brute_force_insert_512d", |b| {
-        let index = BruteForceIndex::new(512, DistanceMetric::Cosine);
-        let vec = generate_random_vector(512);
-
-        b.to_async(&runtime).iter(|| async {
-            let doc = VectorDocument::new(DocumentId::new(), vec.clone());
-            index.insert(black_box(doc)).await.unwrap();
+        b.iter(|| {
+            runtime.block_on(async {
+                let doc = VectorDocument::new(DocumentId::new(), vec.clone());
+                index.insert(black_box(doc)).await.unwrap()
+            })
         });
     });
 }

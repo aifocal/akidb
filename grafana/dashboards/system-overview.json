@@ -1,0 +1,390 @@
+{
+  "dashboard": {
+    "title": "AkiDB System Overview",
+    "uid": "akidb-system-overview",
+    "tags": ["akidb", "overview"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (QPS)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(akidb_http_requests_total[5m]))",
+            "legendFormat": "HTTP Requests/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(akidb_grpc_requests_total[5m]))",
+            "legendFormat": "gRPC Requests/sec",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Requests/sec"
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {
+          "show": true,
+          "values": true,
+          "current": true,
+          "avg": true,
+          "max": true
+        }
+      },
+      {
+        "id": 2,
+        "title": "Error Rate (%)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "100 * sum(rate(akidb_http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(akidb_http_requests_total[5m]))",
+            "legendFormat": "HTTP Error Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "100 * sum(rate(akidb_grpc_requests_total{status=\"error\"}[5m])) / sum(rate(akidb_grpc_requests_total[5m]))",
+            "legendFormat": "gRPC Error Rate",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Error Rate %",
+            "max": 100,
+            "min": 0
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "alert": {
+          "name": "High Error Rate",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [5],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ]
+        },
+        "thresholds": [
+          {
+            "value": 5,
+            "colorMode": "critical",
+            "op": "gt",
+            "fill": true,
+            "line": true
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "P95 Latency",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(akidb_http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "HTTP P95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(akidb_vector_search_duration_seconds_bucket[5m]))",
+            "legendFormat": "Vector Search P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(akidb_vector_insert_duration_seconds_bucket[5m]))",
+            "legendFormat": "Vector Insert P95",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Latency"
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {
+          "show": true,
+          "values": true,
+          "current": true,
+          "avg": true,
+          "max": true
+        },
+        "thresholds": [
+          {
+            "value": 0.025,
+            "colorMode": "critical",
+            "op": "gt",
+            "fill": false,
+            "line": true
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Memory Usage (GB)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(akidb_memory_usage_bytes{component=\"hot_tier\"}) / 1024 / 1024 / 1024",
+            "legendFormat": "Hot Tier",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(akidb_memory_usage_bytes) / 1024 / 1024 / 1024",
+            "legendFormat": "Total",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "decgbytes",
+            "label": "Memory (GB)"
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {
+          "show": true,
+          "values": true,
+          "current": true,
+          "avg": true,
+          "max": true
+        },
+        "thresholds": [
+          {
+            "value": 85,
+            "colorMode": "critical",
+            "op": "gt",
+            "fill": true,
+            "line": true
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Tier Distribution",
+        "type": "piechart",
+        "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "akidb_tier_distribution_collections",
+            "legendFormat": "{{tier}}",
+            "refId": "A"
+          }
+        ],
+        "pieType": "donut",
+        "legend": {
+          "show": true,
+          "values": true,
+          "percentage": true
+        }
+      },
+      {
+        "id": 6,
+        "title": "S3 Operations Rate",
+        "type": "graph",
+        "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(akidb_s3_operations_total{status=\"success\"}[5m])) by (operation)",
+            "legendFormat": "{{operation}} (success)",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(akidb_s3_operations_total{status=\"error\"}[5m])) by (operation)",
+            "legendFormat": "{{operation}} (error)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ops",
+            "label": "Operations/sec"
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2,
+        "legend": {
+          "show": true
+        }
+      },
+      {
+        "id": 7,
+        "title": "Total Collections",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 16, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "akidb_total_collections",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 100,
+                  "color": "yellow"
+                },
+                {
+                  "value": 500,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Background Workers",
+        "type": "graph",
+        "gridPos": {"x": 16, "y": 20, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(akidb_background_worker_runs_total{status=\"success\"}[5m])) by (worker_type)",
+            "legendFormat": "{{worker_type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(akidb_background_worker_runs_total{status=\"error\"}[5m])) by (worker_type)",
+            "legendFormat": "{{worker_type}} (errors)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ops",
+            "label": "Runs/sec"
+          },
+          {
+            "format": "short"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "lines": true,
+        "fill": 1,
+        "linewidth": 2
+      },
+      {
+        "id": 9,
+        "title": "Uptime",
+        "type": "stat",
+        "gridPos": {"x": 20, "y": 16, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "akidb_uptime_seconds",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": 0,
+                  "color": "green"
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

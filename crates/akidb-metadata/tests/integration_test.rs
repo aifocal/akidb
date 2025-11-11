@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use akidb_core::{
-    Action, AuditLogEntry, AuditLogRepository, AuditResult, CollectionDescriptor,
-    CollectionRepository, CoreError, DatabaseDescriptor, DatabaseRepository, DatabaseState,
-    DistanceMetric, Role, TenantCatalog, TenantDescriptor, TenantStatus, UserDescriptor,
-    UserRepository, UserStatus,
+    generate_api_key, hash_api_key, Action, ApiKeyDescriptor, ApiKeyRepository, AuditLogEntry,
+    AuditLogRepository, AuditResult, CollectionDescriptor, CollectionRepository, CoreError,
+    DatabaseDescriptor, DatabaseRepository, DatabaseState, DistanceMetric, Role, TenantCatalog,
+    TenantDescriptor, TenantStatus, UserDescriptor, UserRepository, UserStatus,
 };
 use akidb_metadata::{
-    create_sqlite_pool, password, run_migrations, SqliteAuditLogRepository,
+    create_sqlite_pool, password, run_migrations, SqliteApiKeyRepository, SqliteAuditLogRepository,
     SqliteCollectionRepository, SqliteDatabaseRepository, SqliteTenantCatalog,
     SqliteUserRepository,
 };
@@ -19,6 +19,7 @@ struct TestContext {
     collections: SqliteCollectionRepository,
     users: SqliteUserRepository,
     audit_logs: SqliteAuditLogRepository,
+    api_keys: SqliteApiKeyRepository,
 }
 
 async fn setup_context() -> TestContext {
@@ -34,7 +35,8 @@ async fn setup_context() -> TestContext {
         databases: SqliteDatabaseRepository::new(pool.clone()),
         collections: SqliteCollectionRepository::new(pool.clone()),
         users: SqliteUserRepository::new(pool.clone()),
-        audit_logs: SqliteAuditLogRepository::new(pool),
+        audit_logs: SqliteAuditLogRepository::new(pool.clone()),
+        api_keys: SqliteApiKeyRepository::new(pool),
     }
 }
 
@@ -244,14 +246,13 @@ async fn create_collection_successfully() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
-    let collection = CollectionDescriptor::new(
-        database.database_id,
-        "embeddings",
-        512,
-        "qwen3-embed-8b",
-    );
+    let collection =
+        CollectionDescriptor::new(database.database_id, "embeddings", 512, "qwen3-embed-8b");
     ctx.collections
         .create(&collection)
         .await
@@ -275,7 +276,10 @@ async fn list_collections_by_database() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
     let c1 = CollectionDescriptor::new(database.database_id, "coll1", 256, "model-a");
     let c2 = CollectionDescriptor::new(database.database_id, "coll2", 512, "model-b");
@@ -298,9 +302,13 @@ async fn update_collection_parameters() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
-    let mut collection = CollectionDescriptor::new(database.database_id, "updates", 512, "old-model");
+    let mut collection =
+        CollectionDescriptor::new(database.database_id, "updates", 512, "old-model");
     ctx.collections.create(&collection).await.expect("create");
 
     // Update HNSW parameters and model
@@ -326,13 +334,20 @@ async fn enforce_unique_collection_name_per_database() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
     let c1 = CollectionDescriptor::new(database.database_id, "same-name", 512, "model");
     let c2 = CollectionDescriptor::new(database.database_id, "same-name", 256, "model");
 
     ctx.collections.create(&c1).await.expect("first create");
-    let err = ctx.collections.create(&c2).await.expect_err("duplicate name");
+    let err = ctx
+        .collections
+        .create(&c2)
+        .await
+        .expect_err("duplicate name");
     assert!(matches!(err, CoreError::AlreadyExists { .. }));
 }
 
@@ -343,17 +358,28 @@ async fn validate_dimension_bounds() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
     // Test too small dimension
     let mut collection = CollectionDescriptor::new(database.database_id, "too-small", 8, "model");
-    let err = ctx.collections.create(&collection).await.expect_err("too small");
+    let err = ctx
+        .collections
+        .create(&collection)
+        .await
+        .expect_err("too small");
     assert!(matches!(err, CoreError::InvalidState { .. }));
 
     // Test too large dimension
     collection.name = "too-large".to_string();
     collection.dimension = 8192;
-    let err = ctx.collections.create(&collection).await.expect_err("too large");
+    let err = ctx
+        .collections
+        .create(&collection)
+        .await
+        .expect_err("too large");
     assert!(matches!(err, CoreError::InvalidState { .. }));
 }
 
@@ -364,7 +390,10 @@ async fn cascade_delete_database_removes_collections() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
     let collection = CollectionDescriptor::new(database.database_id, "test", 512, "model");
     ctx.collections
@@ -378,7 +407,11 @@ async fn cascade_delete_database_removes_collections() {
         .await
         .expect("delete database");
 
-    let result = ctx.collections.get(collection.collection_id).await.expect("fetch");
+    let result = ctx
+        .collections
+        .get(collection.collection_id)
+        .await
+        .expect("fetch");
     assert!(result.is_none(), "collection should be deleted");
 }
 
@@ -389,7 +422,10 @@ async fn delete_collection() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let database = DatabaseDescriptor::new(tenant.tenant_id, "vectors", None);
-    ctx.databases.create(&database).await.expect("create database");
+    ctx.databases
+        .create(&database)
+        .await
+        .expect("create database");
 
     let collection = CollectionDescriptor::new(database.database_id, "to-delete", 512, "model");
     ctx.collections
@@ -402,7 +438,11 @@ async fn delete_collection() {
         .await
         .expect("delete");
 
-    let result = ctx.collections.get(collection.collection_id).await.expect("fetch");
+    let result = ctx
+        .collections
+        .get(collection.collection_id)
+        .await
+        .expect("fetch");
     assert!(result.is_none());
 }
 
@@ -583,7 +623,7 @@ async fn admin_has_all_permissions() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let user = UserDescriptor::new(tenant.tenant_id, "admin@example.com", Role::Admin);
-    
+
     // Admin should have all permissions
     assert!(user.has_permission(Action::UserCreate));
     assert!(user.has_permission(Action::DatabaseCreate));
@@ -599,12 +639,12 @@ async fn developer_has_limited_permissions() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let user = UserDescriptor::new(tenant.tenant_id, "dev@example.com", Role::Developer);
-    
+
     // Developer can manage collections and documents
     assert!(user.has_permission(Action::CollectionCreate));
     assert!(user.has_permission(Action::DocumentInsert));
     assert!(user.has_permission(Action::DocumentSearch));
-    
+
     // But cannot manage users
     assert!(!user.has_permission(Action::UserCreate));
     assert!(!user.has_permission(Action::UserDelete));
@@ -617,12 +657,12 @@ async fn viewer_is_read_only() {
     ctx.catalog.create(&tenant).await.expect("create tenant");
 
     let user = UserDescriptor::new(tenant.tenant_id, "viewer@example.com", Role::Viewer);
-    
+
     // Viewer can read
     assert!(user.has_permission(Action::DatabaseRead));
     assert!(user.has_permission(Action::CollectionRead));
     assert!(user.has_permission(Action::DocumentSearch));
-    
+
     // But cannot write
     assert!(!user.has_permission(Action::CollectionCreate));
     assert!(!user.has_permission(Action::DocumentInsert));
@@ -637,7 +677,7 @@ async fn suspended_user_has_no_permissions() {
 
     let mut user = UserDescriptor::new(tenant.tenant_id, "suspended@example.com", Role::Admin);
     user.transition_to(UserStatus::Suspended);
-    
+
     // Suspended users have no permissions, even if they're admins
     assert!(!user.has_permission(Action::DatabaseRead));
     assert!(!user.has_permission(Action::CollectionCreate));
@@ -667,7 +707,10 @@ async fn create_audit_log_entry() {
     .with_reason("Valid permissions")
     .with_ip("192.168.1.100");
 
-    ctx.audit_logs.create(&entry).await.expect("create audit log");
+    ctx.audit_logs
+        .create(&entry)
+        .await
+        .expect("create audit log");
 
     let logs = ctx
         .audit_logs
@@ -749,4 +792,253 @@ async fn list_audit_logs_by_user() {
         .await
         .expect("list logs");
     assert_eq!(logs.len(), 2);
+}
+
+// ==================== API Key Tests ====================
+
+#[tokio::test]
+async fn create_api_key_successfully() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("API Key Corp", "api-key-corp");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+    let descriptor = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "test-key".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor, &key_hash)
+        .await
+        .expect("create API key");
+
+    let fetched = ctx
+        .api_keys
+        .get(descriptor.key_id)
+        .await
+        .expect("get API key")
+        .expect("key exists");
+    assert_eq!(fetched.name, "test-key");
+    assert_eq!(fetched.permissions, vec!["collection::read"]);
+}
+
+#[tokio::test]
+async fn get_api_key_by_hash() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Hash Corp", "hash-corp");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+    let descriptor = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "hash-test-key".to_string(),
+        vec!["collection::write".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor, &key_hash)
+        .await
+        .expect("create API key");
+
+    let fetched = ctx
+        .api_keys
+        .get_by_hash(&key_hash)
+        .await
+        .expect("get by hash")
+        .expect("key exists");
+    assert_eq!(fetched.key_id, descriptor.key_id);
+    assert_eq!(fetched.name, "hash-test-key");
+}
+
+#[tokio::test]
+async fn list_api_keys_by_tenant() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Multi Key Corp", "multi-key");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let key1 = generate_api_key();
+    let hash1 = hash_api_key(&key1);
+    let descriptor1 = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "key-1".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+
+    let key2 = generate_api_key();
+    let hash2 = hash_api_key(&key2);
+    let descriptor2 = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "key-2".to_string(),
+        vec!["collection::write".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor1, &hash1)
+        .await
+        .expect("create key 1");
+    ctx.api_keys
+        .create(&descriptor2, &hash2)
+        .await
+        .expect("create key 2");
+
+    let keys = ctx
+        .api_keys
+        .list_by_tenant(tenant.tenant_id)
+        .await
+        .expect("list keys");
+    assert_eq!(keys.len(), 2);
+}
+
+#[tokio::test]
+async fn delete_api_key() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Delete Key Corp", "delete-key");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+    let descriptor = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "to-delete".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor, &key_hash)
+        .await
+        .expect("create API key");
+
+    ctx.api_keys
+        .delete(descriptor.key_id)
+        .await
+        .expect("delete key");
+
+    let fetched = ctx.api_keys.get(descriptor.key_id).await.expect("get key");
+    assert!(fetched.is_none(), "key should be deleted");
+}
+
+#[tokio::test]
+async fn update_last_used_timestamp() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Last Used Corp", "last-used");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+    let descriptor = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "usage-key".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor, &key_hash)
+        .await
+        .expect("create API key");
+
+    // Initially, last_used_at should be None
+    let fetched = ctx
+        .api_keys
+        .get(descriptor.key_id)
+        .await
+        .expect("get key")
+        .expect("key exists");
+    assert!(fetched.last_used_at.is_none());
+
+    // Update last_used_at
+    ctx.api_keys
+        .update_last_used(descriptor.key_id)
+        .await
+        .expect("update last used");
+
+    // Now last_used_at should be set
+    let updated = ctx
+        .api_keys
+        .get(descriptor.key_id)
+        .await
+        .expect("get key")
+        .expect("key exists");
+    assert!(updated.last_used_at.is_some());
+}
+
+#[tokio::test]
+async fn cascade_delete_tenant_removes_api_keys() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Cascade Key", "cascade-key");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+    let descriptor = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "cascade-test-key".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor, &key_hash)
+        .await
+        .expect("create API key");
+
+    ctx.catalog
+        .delete(tenant.tenant_id)
+        .await
+        .expect("delete tenant");
+
+    let fetched = ctx.api_keys.get(descriptor.key_id).await.expect("get key");
+    assert!(fetched.is_none(), "key should be deleted on cascade");
+}
+
+#[tokio::test]
+async fn enforce_unique_key_hash() {
+    let ctx = setup_context().await;
+    let tenant = TenantDescriptor::new("Unique Key Corp", "unique-key");
+    ctx.catalog.create(&tenant).await.expect("create tenant");
+
+    let api_key = generate_api_key();
+    let key_hash = hash_api_key(&api_key);
+
+    let descriptor1 = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "key-1".to_string(),
+        vec!["collection::read".to_string()],
+        None,
+        None,
+    );
+    let descriptor2 = ApiKeyDescriptor::new(
+        tenant.tenant_id,
+        "key-2".to_string(),
+        vec!["collection::write".to_string()],
+        None,
+        None,
+    );
+
+    ctx.api_keys
+        .create(&descriptor1, &key_hash)
+        .await
+        .expect("create first key");
+    let err = ctx
+        .api_keys
+        .create(&descriptor2, &key_hash)
+        .await
+        .expect_err("duplicate key hash");
+    assert!(matches!(err, CoreError::AlreadyExists { .. }));
 }

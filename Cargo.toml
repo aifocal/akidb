@@ -5,11 +5,16 @@ members = [
     "crates/akidb-cli",
     "crates/akidb-embedding",
     "crates/akidb-index",
+    "crates/akidb-proto",
+    "crates/akidb-service",
+    "crates/akidb-storage",
+    "crates/akidb-grpc",
+    "crates/akidb-rest",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "2.0.0-alpha.1"
+version = "2.0.0-rc1"
 edition = "2021"
 rust-version = "1.75"
 authors = ["AkiDB Team"]
@@ -41,6 +46,13 @@ chrono = { version = "0.4", features = ["serde"] }
 # Logging & Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Observability
+prometheus = "0.13"
+lazy_static = "1.4"
+opentelemetry = "0.21"
+opentelemetry-jaeger = "0.20"
+tracing-opentelemetry = "0.22"
 
 # Testing
 criterion = "0.5"

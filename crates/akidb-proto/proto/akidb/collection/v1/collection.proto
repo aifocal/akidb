@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package akidb.collection.v1;
+
+// MVP: Basic vector operations only
+service CollectionService {
+  // Query vectors (k-NN search)
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // Insert single vector
+  rpc Insert(InsertRequest) returns (InsertResponse);
+
+  // Get vector by ID
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // Delete vector by ID
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Get collection metadata
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+
+  // DEFER to rc2: Streaming operations
+  // rpc QueryBatch(stream QueryRequest) returns (stream QueryResponse);
+  // rpc IngestBatch(stream InsertRequest) returns (IngestResponse);
+}
+
+message QueryRequest {
+  string collection_id = 1;
+  repeated float query_vector = 2 [packed=true];
+  int32 top_k = 3;
+  // DEFER: optional string filter = 4;  // Cedar policy filter
+}
+
+message QueryResponse {
+  repeated VectorMatch matches = 1;
+  double latency_ms = 2;
+}
+
+message VectorMatch {
+  string doc_id = 1;
+  optional string external_id = 2;
+  float distance = 3;
+  // DEFER: map<string, string> metadata = 4;
+}
+
+message InsertRequest {
+  string collection_id = 1;
+  string doc_id = 2;
+  optional string external_id = 3;
+  repeated float vector = 4 [packed=true];
+  // DEFER: map<string, string> metadata = 5;
+}
+
+message InsertResponse {
+  string doc_id = 1;
+  double latency_ms = 2;
+}
+
+message GetRequest {
+  string collection_id = 1;
+  string doc_id = 2;
+}
+
+message GetResponse {
+  optional VectorDocument document = 1;
+}
+
+message VectorDocument {
+  string doc_id = 1;
+  optional string external_id = 2;
+  repeated float vector = 3 [packed=true];
+  string inserted_at = 4;  // ISO-8601 timestamp
+}
+
+message DeleteRequest {
+  string collection_id = 1;
+  string doc_id = 2;
+}
+
+message DeleteResponse {
+  double latency_ms = 1;
+}
+
+message DescribeRequest {
+  string collection_id = 1;
+}
+
+message DescribeResponse {
+  string collection_id = 1;
+  string name = 2;
+  uint32 dimension = 3;
+  string metric = 4;  // "cosine", "l2", "dot"
+  uint64 document_count = 5;
+}
+
+// Collection Management Service
+// Handles collection lifecycle (create, list, delete)
+service CollectionManagementService {
+  // Create a new collection
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+
+  // List all collections
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+
+  // Get collection details
+  rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
+
+  // Delete a collection
+  rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+}
+
+message CreateCollectionRequest {
+  string name = 1;
+  uint32 dimension = 2;
+  string metric = 3;  // "cosine", "l2", "dot"
+  optional string embedding_model = 4;
+}
+
+message CreateCollectionResponse {
+  string collection_id = 1;
+  string name = 2;
+  uint32 dimension = 3;
+  string metric = 4;
+}
+
+message ListCollectionsRequest {
+  // Empty for rc1 (future: pagination, filtering)
+}
+
+message ListCollectionsResponse {
+  repeated CollectionInfo collections = 1;
+}
+
+message CollectionInfo {
+  string collection_id = 1;
+  string name = 2;
+  uint32 dimension = 3;
+  string metric = 4;
+  uint64 document_count = 5;
+  string created_at = 6;  // ISO-8601 timestamp
+}
+
+message GetCollectionRequest {
+  string collection_id = 1;
+}
+
+message GetCollectionResponse {
+  CollectionInfo collection = 1;
+}
+
+message DeleteCollectionRequest {
+  string collection_id = 1;
+}
+
+message DeleteCollectionResponse {
+  bool success = 1;
+}

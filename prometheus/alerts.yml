@@ -1,0 +1,190 @@
+# Prometheus Alert Rules for AkiDB 2.0
+# Defines alert conditions for production monitoring
+# Compatible with Alertmanager
+
+groups:
+  - name: akidb_service_alerts
+    interval: 30s
+    rules:
+      # Alert: High error rate
+      - alert: HighErrorRate
+        expr: rate(akidb_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "High error rate detected in AkiDB service"
+          description: "Error rate is {{ $value | humanize }} errors/sec (threshold: 10/sec). Check application logs for details."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#high-error-rate"
+
+      # Alert: Critical error rate
+      - alert: CriticalErrorRate
+        expr: rate(akidb_errors_total[5m]) > 50
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "CRITICAL: Very high error rate in AkiDB service"
+          description: "Error rate is {{ $value | humanize }} errors/sec (threshold: 50/sec). Immediate action required!"
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#critical-error-rate"
+
+      # Alert: High search latency (P95 > 25ms target)
+      - alert: HighSearchLatency
+        expr: akidb_search_latency_ms_p95 > 25
+        for: 5m
+        labels:
+          severity: warning
+          component: index
+        annotations:
+          summary: "Search P95 latency exceeds target"
+          description: "Search P95 latency is {{ $value }}ms (target: <25ms). Performance degradation detected."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#high-search-latency"
+
+      # Alert: Very high search latency (P95 > 50ms)
+      - alert: VeryHighSearchLatency
+        expr: akidb_search_latency_ms_p95 > 50
+        for: 2m
+        labels:
+          severity: critical
+          component: index
+        annotations:
+          summary: "CRITICAL: Search latency severely degraded"
+          description: "Search P95 latency is {{ $value }}ms (critical threshold: 50ms). Service quality severely impacted."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#very-high-search-latency"
+
+      # Alert: AkiDB service down (no metrics scraped)
+      - alert: AkiDBServiceDown
+        expr: up{job="akidb-rest"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "AkiDB REST service is down"
+          description: "Prometheus cannot scrape metrics from {{ $labels.instance }}. Service may be crashed or unreachable."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#service-down"
+
+  - name: akidb_storage_alerts
+    interval: 30s
+    rules:
+      # Alert: Circuit breaker open
+      - alert: CircuitBreakerOpen
+        expr: akidb_circuit_breaker_state == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "S3 circuit breaker is OPEN"
+          description: "Circuit breaker has opened due to high S3 error rate. S3 uploads are paused. Check S3 connectivity and DLQ."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#circuit-breaker-open"
+
+      # Alert: High circuit breaker error rate
+      - alert: HighS3ErrorRate
+        expr: akidb_circuit_breaker_error_rate > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "High S3 error rate detected"
+          description: "S3 error rate is {{ $value | humanizePercentage }} (threshold: 5%). Circuit breaker may trip soon."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#high-s3-error-rate"
+
+      # Alert: Dead Letter Queue size growing
+      - alert: DLQSizeHigh
+        expr: akidb_dlq_size > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Dead Letter Queue accumulating failed uploads"
+          description: "DLQ size is {{ $value }} (threshold: 100). Failed S3 uploads are accumulating. Investigate S3 issues."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#dlq-size-high"
+
+      # Alert: Dead Letter Queue critical
+      - alert: DLQSizeCritical
+        expr: akidb_dlq_size > 1000
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "CRITICAL: Dead Letter Queue near capacity"
+          description: "DLQ size is {{ $value }} (critical: 1000, max: 10000). Risk of data loss if DLQ reaches capacity."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#dlq-size-critical"
+
+      # Alert: High S3 permanent failures
+      - alert: HighS3PermanentFailures
+        expr: rate(akidb_s3_permanent_failures_total[10m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "High rate of permanent S3 failures"
+          description: "S3 permanent failures: {{ $value | humanize }}/sec. Data may be lost if not in DLQ."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#high-s3-permanent-failures"
+
+      # Alert: WAL size growing too large
+      - alert: WALSizeLarge
+        expr: akidb_wal_size_bytes > 100000000  # 100MB
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Write-Ahead Log size is large"
+          description: "WAL size is {{ $value | humanize1024 }}B (threshold: 100MB). May indicate S3 upload issues or slow compaction."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#wal-size-large"
+
+      # Alert: Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            rate(akidb_cache_hits_total[10m]) /
+            (rate(akidb_cache_hits_total[10m]) + rate(akidb_cache_misses_total[10m]))
+          ) < 0.5
+        for: 10m
+        labels:
+          severity: info
+          component: storage
+        annotations:
+          summary: "S3Only cache hit rate is low"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 50%). More S3 downloads than expected."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#low-cache-hit-rate"
+
+  - name: akidb_resource_alerts
+    interval: 30s
+    rules:
+      # Alert: High insert latency
+      - alert: HighInsertLatency
+        expr: akidb_insert_latency_ms_p95 > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: index
+        annotations:
+          summary: "Insert P95 latency is high"
+          description: "Insert P95 latency is {{ $value }}ms (threshold: 100ms). May indicate storage or indexing issues."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#high-insert-latency"
+
+      # Alert: No searches in last 30 minutes (potential issue or low traffic)
+      - alert: NoRecentSearches
+        expr: increase(akidb_searches_performed_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: info
+          component: service
+        annotations:
+          summary: "No search operations in last 30 minutes"
+          description: "No searches performed in 30 minutes. Either very low traffic or potential application issue."
+          runbook_url: "https://github.com/your-org/akidb2/blob/main/docs/OBSERVABILITY-RUNBOOK.md#no-recent-searches"
+
+# Alert Severity Levels:
+# - info: Informational, no action required immediately
+# - warning: Action should be taken within hours
+# - critical: Immediate action required (pages on-call)

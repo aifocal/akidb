@@ -1,0 +1,23 @@
+# ServiceMonitor for Prometheus Operator
+# Only apply if Prometheus Operator is installed in your cluster
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: akidb-metrics
+  namespace: akidb
+  labels:
+    app: akidb
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: akidb-rest
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+  namespaceSelector:
+    matchNames:
+      - akidb

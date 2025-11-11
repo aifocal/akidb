@@ -1,27 +1,74 @@
+use akidb_metadata::{SqliteCollectionRepository, VectorPersistence};
 use akidb_rest::handlers;
-use akidb_service::CollectionService;
-use akidb_metadata::SqliteCollectionRepository;
+use akidb_service::{CollectionService, Config, EmbeddingManager};
 use axum::{
     routing::{delete, get, post},
     Router,
 };
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Load configuration
+    let config = Config::load().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load config: {}. Using defaults.", e);
+        Config::default()
+    });
 
-    // Configuration from environment
-    let host = env::var("AKIDB_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = env::var("AKIDB_PORT").unwrap_or_else(|_| "8080".to_string());
-    let db_path = env::var("AKIDB_DB_PATH").unwrap_or_else(|_| "sqlite://akidb.db".to_string());
+    // Validate configuration
+    config.validate()?;
+
+    // Initialize distributed tracing with OpenTelemetry (optional)
+    // Set ENABLE_TRACING=true to enable Jaeger tracing
+    if std::env::var("ENABLE_TRACING").unwrap_or_else(|_| "false".to_string()) == "true" {
+        tracing::info!("🔍 Initializing distributed tracing with Jaeger...");
+        if let Err(e) = akidb_rest::tracing_init::init_from_env() {
+            tracing::warn!(
+                "⚠️  Failed to initialize tracing: {}. Falling back to basic logging.",
+                e
+            );
+            // Fall back to basic logging
+            let subscriber =
+                tracing_subscriber::fmt().with_max_level(match config.logging.level.as_str() {
+                    "trace" => tracing::Level::TRACE,
+                    "debug" => tracing::Level::DEBUG,
+                    "info" => tracing::Level::INFO,
+                    "warn" => tracing::Level::WARN,
+                    "error" => tracing::Level::ERROR,
+                    _ => tracing::Level::INFO,
+                });
+
+            if config.logging.format == "json" {
+                subscriber.json().init();
+            } else {
+                subscriber.init();
+            }
+        } else {
+            tracing::info!("✅ Distributed tracing initialized");
+        }
+    } else {
+        // Use basic logging (no distributed tracing)
+        let subscriber =
+            tracing_subscriber::fmt().with_max_level(match config.logging.level.as_str() {
+                "trace" => tracing::Level::TRACE,
+                "debug" => tracing::Level::DEBUG,
+                "info" => tracing::Level::INFO,
+                "warn" => tracing::Level::WARN,
+                "error" => tracing::Level::ERROR,
+                _ => tracing::Level::INFO,
+            });
+
+        if config.logging.format == "json" {
+            subscriber.json().init();
+        } else {
+            subscriber.init();
+        }
+    }
 
     // Initialize SQLite database
-    tracing::info!("📦 Connecting to database: {}", db_path);
-    let pool = SqlitePool::connect(&db_path).await?;
+    tracing::info!("📦 Connecting to database: {}", config.database.path);
+    let pool = SqlitePool::connect(&config.database.path).await?;
 
     // Run migrations
     tracing::info!("🔄 Running database migrations...");
@@ -29,17 +76,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run(&pool)
         .await?;
 
-    // Create repository and service with persistence
+    // Create repository and service with full persistence (collections + vectors + metrics)
     let repository = Arc::new(SqliteCollectionRepository::new(pool.clone()));
-    let service = Arc::new(CollectionService::with_repository(repository));
+    let vector_persistence = Arc::new(VectorPersistence::new(pool.clone()));
+    let service = Arc::new(CollectionService::with_full_persistence(
+        repository,
+        vector_persistence,
+    ));
 
     // Initialize default database_id for RC1 (single-database mode)
     tracing::info!("🔍 Initializing default tenant and database...");
 
     // Check if default tenant exists
-    let tenant_row: Option<(Vec<u8>,)> = sqlx::query_as("SELECT tenant_id FROM tenants WHERE slug = 'default' LIMIT 1")
-        .fetch_optional(&pool)
-        .await?;
+    let tenant_row: Option<(Vec<u8>,)> =
+        sqlx::query_as("SELECT tenant_id FROM tenants WHERE slug = 'default' LIMIT 1")
+            .fetch_optional(&pool)
+            .await?;
 
     let tenant_id = if let Some((tenant_id_bytes,)) = tenant_row {
         akidb_core::TenantId::from_bytes(&tenant_id_bytes)
@@ -58,9 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Check if default database exists
-    let database_row: Option<(Vec<u8>,)> = sqlx::query_as("SELECT database_id FROM databases WHERE name = 'default' LIMIT 1")
-        .fetch_optional(&pool)
-        .await?;
+    let database_row: Option<(Vec<u8>,)> =
+        sqlx::query_as("SELECT database_id FROM databases WHERE name = 'default' LIMIT 1")
+            .fetch_optional(&pool)
+            .await?;
 
     let database_id = if let Some((db_id_bytes,)) = database_row {
         akidb_core::DatabaseId::from_bytes(&db_id_bytes)
@@ -89,27 +142,157 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let collection_count = service.list_collections().await?.len();
     tracing::info!("✅ Loaded {} collection(s)", collection_count);
 
+    // Initialize EmbeddingManager for MLX embeddings
+    tracing::info!("🤖 Initializing MLX EmbeddingManager...");
+    let embedding_manager = match EmbeddingManager::new("qwen3-0.6b-4bit").await {
+        Ok(manager) => {
+            tracing::info!(
+                "✅ MLX EmbeddingManager initialized (model: qwen3-0.6b-4bit, dimension: {})",
+                manager.dimension()
+            );
+            Some(Arc::new(manager))
+        }
+        Err(e) => {
+            tracing::warn!("⚠️  Failed to initialize EmbeddingManager: {}. /embed endpoint will not be available.", e);
+            None
+        }
+    };
+
+    // Build embedding state if manager is available
+    let embedding_state = embedding_manager.map(|manager| {
+        Arc::new(handlers::EmbeddingAppState {
+            embedding_manager: manager,
+        })
+    });
+
+    // Build main router with collection endpoints
     let app = Router::new()
-        .route("/health", get(handlers::health))
+        // Kubernetes health and readiness probes
+        .route("/health", get(handlers::health_handler))
+        .route("/ready", get(handlers::ready_handler))
+        .route("/metrics", get(handlers::metrics))
         // Collection management endpoints
         .route("/api/v1/collections", post(handlers::create_collection))
         .route("/api/v1/collections", get(handlers::list_collections))
         .route("/api/v1/collections/:id", get(handlers::get_collection))
-        .route("/api/v1/collections/:id", delete(handlers::delete_collection))
+        .route(
+            "/api/v1/collections/:id",
+            delete(handlers::delete_collection),
+        )
         // Vector operation endpoints
-        .route("/api/v1/collections/:id/query", post(handlers::query_vectors))
-        .route("/api/v1/collections/:id/insert", post(handlers::insert_vector))
-        .route("/api/v1/collections/:id/docs/:doc_id", get(handlers::get_vector))
-        .route("/api/v1/collections/:id/docs/:doc_id", delete(handlers::delete_vector))
-        .with_state(service);
+        .route(
+            "/api/v1/collections/:id/query",
+            post(handlers::query_vectors),
+        )
+        .route(
+            "/api/v1/collections/:id/insert",
+            post(handlers::insert_vector),
+        )
+        .route(
+            "/api/v1/collections/:id/docs/:doc_id",
+            get(handlers::get_vector),
+        )
+        .route(
+            "/api/v1/collections/:id/docs/:doc_id",
+            delete(handlers::delete_vector),
+        )
+        // Admin/Operations endpoints (Phase 7 Week 4)
+        .route("/admin/health", get(handlers::health_check))
+        .route(
+            "/admin/collections/:id/dlq/retry",
+            post(handlers::retry_dlq),
+        )
+        .route(
+            "/admin/circuit-breaker/reset",
+            post(handlers::reset_circuit_breaker),
+        )
+        // Tier management endpoints (Phase 10 Week 3)
+        .route(
+            "/api/v1/collections/:id/tier",
+            get(handlers::get_collection_tier),
+        )
+        .route(
+            "/api/v1/collections/:id/tier",
+            post(handlers::update_collection_tier),
+        )
+        .route("/api/v1/metrics/tiers", get(handlers::get_tier_metrics))
+        .with_state(Arc::clone(&service));
 
-    let addr = format!("{}:{}", host, port).parse()?;
+    // Clone service for shutdown handler before moving it into router state
+    let service_for_shutdown = Arc::clone(&service);
+
+    // Add embedding endpoint if manager is available (nested router)
+    let app = if let Some(state) = embedding_state {
+        tracing::info!("🔌 Adding /api/v1/embed endpoint");
+        let embedding_router = Router::new()
+            .route("/api/v1/embed", post(handlers::embed_handler))
+            .with_state(state);
+
+        app.merge(embedding_router)
+    } else {
+        app
+    };
+
+    let addr = format!("{}:{}", config.server.host, config.server.rest_port).parse()?;
 
     tracing::info!("🌐 REST server listening on {}", addr);
 
+    // Setup graceful shutdown
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal(service_for_shutdown))
         .await?;
 
+    tracing::info!("✅ Server shutdown complete");
+
+    // Shutdown tracing provider (flushes pending spans)
+    if std::env::var("ENABLE_TRACING").unwrap_or_else(|_| "false".to_string()) == "true" {
+        tracing::info!("🔍 Shutting down tracing...");
+        akidb_rest::tracing_init::shutdown();
+    }
+
     Ok(())
+}
+
+/// Wait for SIGTERM or SIGINT signal for graceful shutdown.
+///
+/// When a signal is received, this function:
+/// 1. Logs the signal type
+/// 2. Calls CollectionService::shutdown() to flush WAL, stop background tasks, etc.
+/// 3. Returns to allow Axum to complete in-flight requests
+async fn shutdown_signal(service: Arc<CollectionService>) {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("🛑 Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+        },
+        _ = terminate => {
+            tracing::info!("🛑 Received SIGTERM, initiating graceful shutdown...");
+        },
+    }
+
+    // Shutdown collection service (flush WAL, stop background tasks)
+    if let Err(e) = service.shutdown().await {
+        tracing::error!("❌ Error during collection service shutdown: {}", e);
+    } else {
+        tracing::info!("✅ Collection service shutdown complete");
+    }
 }

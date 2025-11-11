@@ -134,11 +134,7 @@ impl SqliteUserRepository {
     }
 
     /// Delete a user using the provided executor.
-    async fn delete_with_executor<'e, E>(
-        &self,
-        user_id: UserId,
-        executor: E,
-    ) -> CoreResult<()>
+    async fn delete_with_executor<'e, E>(&self, user_id: UserId, executor: E) -> CoreResult<()>
     where
         E: Executor<'e, Database = Sqlite>,
     {
@@ -210,15 +206,33 @@ impl UserRepository for SqliteUserRepository {
 
 /// Parse a user row from SQLite.
 fn parse_user_row(row: &sqlx::sqlite::SqliteRow) -> CoreResult<UserDescriptor> {
-    let user_id_bytes: Vec<u8> = row.try_get("user_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let tenant_id_bytes: Vec<u8> = row.try_get("tenant_id").map_err(|e| CoreError::internal(e.to_string()))?;
-    let email: String = row.try_get("email").map_err(|e| CoreError::internal(e.to_string()))?;
-    let password_hash: String = row.try_get("password_hash").map_err(|e| CoreError::internal(e.to_string()))?;
-    let role_str: String = row.try_get("role").map_err(|e| CoreError::internal(e.to_string()))?;
-    let status_str: String = row.try_get("status").map_err(|e| CoreError::internal(e.to_string()))?;
-    let created_at_str: String = row.try_get("created_at").map_err(|e| CoreError::internal(e.to_string()))?;
-    let updated_at_str: String = row.try_get("updated_at").map_err(|e| CoreError::internal(e.to_string()))?;
-    let last_login_at_str: Option<String> = row.try_get("last_login_at").map_err(|e| CoreError::internal(e.to_string()))?;
+    let user_id_bytes: Vec<u8> = row
+        .try_get("user_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let tenant_id_bytes: Vec<u8> = row
+        .try_get("tenant_id")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let email: String = row
+        .try_get("email")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let password_hash: String = row
+        .try_get("password_hash")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let role_str: String = row
+        .try_get("role")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let status_str: String = row
+        .try_get("status")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let created_at_str: String = row
+        .try_get("created_at")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let updated_at_str: String = row
+        .try_get("updated_at")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
+    let last_login_at_str: Option<String> = row
+        .try_get("last_login_at")
+        .map_err(|e| CoreError::internal(e.to_string()))?;
 
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_err(|e| CoreError::internal(e.to_string()))?
@@ -232,8 +246,10 @@ fn parse_user_row(row: &sqlx::sqlite::SqliteRow) -> CoreResult<UserDescriptor> {
         .map_err(|e| CoreError::internal(e.to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
-    let user_id = UserId::from_bytes(&user_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
-    let tenant_id = TenantId::from_bytes(&tenant_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
+    let user_id =
+        UserId::from_bytes(&user_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
+    let tenant_id =
+        TenantId::from_bytes(&tenant_id_bytes).map_err(|e| CoreError::internal(e.to_string()))?;
     let role = Role::from_str(&role_str).map_err(CoreError::invalid_state)?;
     let status = UserStatus::from_str(&status_str).map_err(CoreError::invalid_state)?;
 

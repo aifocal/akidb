@@ -13,6 +13,8 @@
 mod mlx;
 #[cfg(feature = "candle")]
 mod candle;
+#[cfg(feature = "onnx")]
+mod onnx;
 mod mock;
 mod provider;
 mod types;
@@ -21,6 +23,8 @@ mod types;
 pub use mlx::MlxEmbeddingProvider;
 #[cfg(feature = "candle")]
 pub use candle::CandleEmbeddingProvider;
+#[cfg(feature = "onnx")]
+pub use onnx::OnnxEmbeddingProvider;
 pub use mock::MockEmbeddingProvider;
 pub use provider::EmbeddingProvider;
 pub use types::{

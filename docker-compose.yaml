@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # gRPC server (recommended for production)
+  akidb-grpc:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.grpc
+    image: akidb/akidb-grpc:2.0.0-rc1
+    container_name: akidb-grpc
+    ports:
+      - "9000:9000"
+    volumes:
+      - akidb-data:/data/akidb
+      - akidb-logs:/var/log/akidb
+    environment:
+      - RUST_LOG=info
+      - AKIDB_HOST=0.0.0.0
+      - AKIDB_PORT=9000
+      - AKIDB_METADATA_DB=/data/akidb/metadata.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "grpcurl", "-plaintext", "localhost:9000", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - akidb-network
+
+  # REST server (compatibility/development)
+  akidb-rest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rest
+    image: akidb/akidb-rest:2.0.0-rc1
+    container_name: akidb-rest
+    ports:
+      - "8080:8080"
+    volumes:
+      - akidb-data:/data/akidb
+      - akidb-logs:/var/log/akidb
+    environment:
+      - RUST_LOG=info
+      - AKIDB_HOST=0.0.0.0
+      - AKIDB_PORT=8080
+      - AKIDB_METADATA_DB=/data/akidb/metadata.db
+      - ENABLE_TRACING=true
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - akidb-network
+    depends_on:
+      - akidb-grpc
+
+  # Prometheus metrics collector
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: akidb-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=1GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: unless-stopped
+    networks:
+      - akidb-network
+    depends_on:
+      - akidb-rest
+
+  # Grafana visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: akidb-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+    restart: unless-stopped
+    networks:
+      - akidb-network
+    depends_on:
+      - prometheus
+
+  # Jaeger distributed tracing (all-in-one for development)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: akidb-jaeger
+    ports:
+      - "5775:5775/udp"   # Agent: accept zipkin.thrift over compact thrift protocol
+      - "6831:6831/udp"   # Agent: accept jaeger.thrift over compact thrift protocol
+      - "6832:6832/udp"   # Agent: accept jaeger.thrift over binary thrift protocol
+      - "5778:5778"       # Agent: serve configs
+      - "16686:16686"     # Query: serve frontend
+      - "14268:14268"     # Collector: accept jaeger.thrift directly from clients
+      - "14250:14250"     # Collector: accept model.proto
+      - "9411:9411"       # Collector: Zipkin compatible endpoint
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+    networks:
+      - akidb-network
+
+volumes:
+  akidb-data:
+    driver: local
+  akidb-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  akidb-network:
+    driver: bridge

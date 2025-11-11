@@ -11,6 +11,7 @@ repository = { workspace = true }
 akidb-core = { path = "../akidb-core" }
 argon2 = "0.5"
 async-trait = "0.1"
+bincode = "1.3"
 chrono = { workspace = true }
 rand = "0.8"
 serde_json = { workspace = true }

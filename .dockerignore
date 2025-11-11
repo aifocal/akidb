@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+automatosx/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+tests/
+benches/
+examples/
+
+# Kubernetes
+k8s/
+
+# Docker
+docker/
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+
+# Database files (don't copy into image)
+*.db
+*.db-shm
+*.db-wal
+
+# Config files (use example only)
+config.toml
+
+# Collections data
+collections/

@@ -1,0 +1,26 @@
+# Grafana Dashboard Provisioning for AkiDB 2.0
+# Auto-imports dashboard JSONs from /etc/grafana/provisioning/dashboards/
+# Compatible with Docker Compose deployment
+
+apiVersion: 1
+
+providers:
+  # AkiDB Dashboards
+  - name: 'AkiDB Dashboards'
+    orgId: 1
+    folder: 'AkiDB 2.0'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
+
+  # Optional: Additional dashboard providers
+  # - name: 'Custom Dashboards'
+  #   orgId: 1
+  #   folder: 'Custom'
+  #   type: file
+  #   options:
+  #     path: /etc/grafana/provisioning/dashboards/custom

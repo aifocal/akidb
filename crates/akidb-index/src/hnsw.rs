@@ -12,19 +12,24 @@
 //! Note: This is a research implementation (Phase 4C) for educational purposes.
 //! For production use, see InstantDistanceIndex (Phase 4B) which achieves >95% recall.
 
+// Allow clippy warnings for research/educational code
+#![allow(clippy::let_and_return)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::non_canonical_partial_ord_impl)]
 #![allow(dead_code)]
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
 use rand::Rng;
 
 use akidb_core::{
     CoreError, CoreResult, DistanceMetric, DocumentId, SearchResult, VectorDocument, VectorIndex,
 };
+
+// Use crate-level sync module for conditional compilation (Loom vs production)
+use crate::{Arc, RwLock};
 
 /// HNSW index configuration parameters.
 #[derive(Debug, Clone)]
@@ -257,7 +262,8 @@ impl HnswIndex {
             // For L2: worst = highest distance
             // For Cosine/Dot: worst = lowest score
             // Use max_by: returns element that compares as Greater = worst
-            let worst = working_set.iter()
+            let worst = working_set
+                .iter()
                 .max_by(|a, b| {
                     if a.is_better_than(b, self.config.metric) {
                         Ordering::Less
@@ -302,12 +308,14 @@ impl HnswIndex {
                                     DistanceMetric::L2 => neighbor_dist,
                                     DistanceMetric::Cosine | DistanceMetric::Dot => -neighbor_dist,
                                 };
-                                candidates.push(std::cmp::Reverse(OrderedDist(heap_dist, neighbor_id)));
+                                candidates
+                                    .push(std::cmp::Reverse(OrderedDist(heap_dist, neighbor_id)));
                                 working_set.push(neighbor_od);
 
                                 // Remove worst if we exceed ef
                                 if working_set.len() > ef {
-                                    if let Some(worst_idx) = working_set.iter()
+                                    if let Some(worst_idx) = working_set
+                                        .iter()
                                         .enumerate()
                                         .max_by(|(_, a), (_, b)| {
                                             // max_by returns element that compares as Greater = worst
@@ -340,7 +348,10 @@ impl HnswIndex {
             }
         });
 
-        working_set.into_iter().map(|OrderedDist(dist, id)| (dist, id)).collect()
+        working_set
+            .into_iter()
+            .map(|OrderedDist(dist, id)| (dist, id))
+            .collect()
     }
 
     /// Compares two distances according to the metric convention.
@@ -394,7 +405,8 @@ impl HnswIndex {
                     // Check distance to all elements in result
                     for &result_id in &result {
                         if let Some(result_node) = state.nodes.get(&result_id) {
-                            let dist_to_result = self.compute_distance(&cand_node.vector, result_node);
+                            let dist_to_result =
+                                self.compute_distance(&cand_node.vector, result_node);
 
                             // If candidate is closer to an existing result element than to query,
                             // it would create a hub, so discard it
@@ -451,19 +463,13 @@ impl HnswIndex {
     }
 
     /// Adds a bidirectional edge between two nodes at a specific layer.
-    fn add_edge(
-        state: &mut HnswState,
-        from: DocumentId,
-        to: DocumentId,
-        layer: usize,
-    ) {
+    fn add_edge(state: &mut HnswState, from: DocumentId, to: DocumentId, layer: usize) {
         // Ensure layer exists
         while state.layers.len() <= layer {
             state.layers.push(HashMap::new());
         }
 
-        state
-            .layers[layer]
+        state.layers[layer]
             .entry(from)
             .or_insert_with(Vec::new)
             .push(to);
@@ -510,7 +516,11 @@ impl HnswIndex {
         let selected = self.select_neighbors(state, &node_vector, neighbor_dists, m);
 
         // Update neighbors with mutable borrow
-        if let Some(neighbors) = state.layers.get_mut(layer).and_then(|l| l.get_mut(&node_id)) {
+        if let Some(neighbors) = state
+            .layers
+            .get_mut(layer)
+            .and_then(|l| l.get_mut(&node_id))
+        {
             *neighbors = selected;
         }
     }
@@ -570,8 +580,13 @@ impl VectorIndex for HnswIndex {
             };
 
             // Find candidates
-            let candidates =
-                self.search_layer(&state, &doc.vector, &entry_points, self.config.ef_construction, layer);
+            let candidates = self.search_layer(
+                &state,
+                &doc.vector,
+                &entry_points,
+                self.config.ef_construction,
+                layer,
+            );
 
             // Select M neighbors using Algorithm 4 heuristic
             let neighbors = self.select_neighbors(&state, &doc.vector, candidates.clone(), m);
@@ -641,12 +656,19 @@ impl VectorIndex for HnswIndex {
         // Search layer 0 with ef parameter
         let candidates = self.search_layer(&state, query, &entry_points, ef, 0);
 
-        // Convert to SearchResult and return top-k
+        // FIX BUG #21: Filter out deleted nodes before building results
+        // Without this, deleted vectors continue to appear in search results (GDPR violation!)
+        // Mirror the deleted check used in get() and count() methods
         let results: Vec<SearchResult> = candidates
             .into_iter()
             .take(k)
             .filter_map(|(score, doc_id)| {
-                state.nodes.get(&doc_id).map(|node| {
+                state.nodes.get(&doc_id).and_then(|node| {
+                    // Skip deleted nodes (soft delete with tombstone)
+                    if node.deleted {
+                        return None;
+                    }
+
                     let mut result = SearchResult::new(doc_id, score);
                     if let Some(ref ext_id) = node.external_id {
                         result = result.with_external_id(ext_id.clone());
@@ -654,7 +676,7 @@ impl VectorIndex for HnswIndex {
                     if let Some(ref meta) = node.metadata {
                         result = result.with_metadata(meta.clone());
                     }
-                    result
+                    Some(result)
                 })
             })
             .collect();
@@ -834,7 +856,10 @@ mod tests {
         let doc = VectorDocument::new(DocumentId::new(), vec![1.0, 2.0]);
         let result = index.insert(doc).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("dimension mismatch"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("dimension mismatch"));
     }
 
     #[tokio::test]

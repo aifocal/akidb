@@ -1,26 +1,44 @@
-use akidb_grpc::{CollectionHandler, CollectionManagementHandler};
-use akidb_service::CollectionService;
-use akidb_metadata::SqliteCollectionRepository;
-use akidb_proto::collection_service_server::CollectionServiceServer;
+use akidb_grpc::{CollectionHandler, CollectionManagementHandler, EmbeddingHandler};
+use akidb_metadata::{SqliteCollectionRepository, VectorPersistence};
 use akidb_proto::collection_management_service_server::CollectionManagementServiceServer;
-use tonic::transport::Server;
+use akidb_proto::collection_service_server::CollectionServiceServer;
+use akidb_proto::embedding::embedding_service_server::EmbeddingServiceServer;
+use akidb_service::{CollectionService, Config, EmbeddingManager};
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use std::env;
+use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Load configuration
+    let config = Config::load().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load config: {}. Using defaults.", e);
+        Config::default()
+    });
 
-    // Configuration from environment
-    let host = env::var("AKIDB_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = env::var("AKIDB_PORT").unwrap_or_else(|_| "9000".to_string());
-    let db_path = env::var("AKIDB_DB_PATH").unwrap_or_else(|_| "sqlite://akidb.db".to_string());
+    // Validate configuration
+    config.validate()?;
+
+    // Initialize logging based on config
+    let subscriber =
+        tracing_subscriber::fmt().with_max_level(match config.logging.level.as_str() {
+            "trace" => tracing::Level::TRACE,
+            "debug" => tracing::Level::DEBUG,
+            "info" => tracing::Level::INFO,
+            "warn" => tracing::Level::WARN,
+            "error" => tracing::Level::ERROR,
+            _ => tracing::Level::INFO,
+        });
+
+    if config.logging.format == "json" {
+        subscriber.json().init();
+    } else {
+        subscriber.init();
+    }
 
     // Initialize SQLite database
-    tracing::info!("📦 Connecting to database: {}", db_path);
-    let pool = SqlitePool::connect(&db_path).await?;
+    tracing::info!("📦 Connecting to database: {}", config.database.path);
+    let pool = SqlitePool::connect(&config.database.path).await?;
 
     // Run migrations
     tracing::info!("🔄 Running database migrations...");
@@ -28,17 +46,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run(&pool)
         .await?;
 
-    // Create repository and service with persistence
+    // Create repository and service with full persistence (collections + vectors + metrics)
     let repository = Arc::new(SqliteCollectionRepository::new(pool.clone()));
-    let service = Arc::new(CollectionService::with_repository(repository));
+    let vector_persistence = Arc::new(VectorPersistence::new(pool.clone()));
+    let service = Arc::new(CollectionService::with_full_persistence(
+        repository,
+        vector_persistence,
+    ));
 
     // Initialize default database_id for RC1 (single-database mode)
     tracing::info!("🔍 Initializing default tenant and database...");
 
     // Check if default tenant exists
-    let tenant_row: Option<(Vec<u8>,)> = sqlx::query_as("SELECT tenant_id FROM tenants WHERE slug = 'default' LIMIT 1")
-        .fetch_optional(&pool)
-        .await?;
+    let tenant_row: Option<(Vec<u8>,)> =
+        sqlx::query_as("SELECT tenant_id FROM tenants WHERE slug = 'default' LIMIT 1")
+            .fetch_optional(&pool)
+            .await?;
 
     let tenant_id = if let Some((tenant_id_bytes,)) = tenant_row {
         akidb_core::TenantId::from_bytes(&tenant_id_bytes)
@@ -57,9 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Check if default database exists
-    let database_row: Option<(Vec<u8>,)> = sqlx::query_as("SELECT database_id FROM databases WHERE name = 'default' LIMIT 1")
-        .fetch_optional(&pool)
-        .await?;
+    let database_row: Option<(Vec<u8>,)> =
+        sqlx::query_as("SELECT database_id FROM databases WHERE name = 'default' LIMIT 1")
+            .fetch_optional(&pool)
+            .await?;
 
     let database_id = if let Some((db_id_bytes,)) = database_row {
         akidb_core::DatabaseId::from_bytes(&db_id_bytes)
@@ -88,19 +112,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let collection_count = service.list_collections().await?.len();
     tracing::info!("✅ Loaded {} collection(s)", collection_count);
 
+    // Initialize EmbeddingManager for MLX embeddings (optional)
+    tracing::info!("🤖 Initializing MLX EmbeddingManager...");
+    let embedding_manager = match EmbeddingManager::new("qwen3-0.6b-4bit").await {
+        Ok(manager) => {
+            tracing::info!(
+                "✅ MLX EmbeddingManager initialized (model: qwen3-0.6b-4bit, dimension: {})",
+                manager.dimension()
+            );
+            Some(Arc::new(manager))
+        }
+        Err(e) => {
+            tracing::warn!("⚠️  Failed to initialize EmbeddingManager: {}. Embedding service will not be available.", e);
+            None
+        }
+    };
+
     // Create gRPC handlers
     let collection_handler = CollectionHandler::new(Arc::clone(&service));
     let management_handler = CollectionManagementHandler::new(Arc::clone(&service));
 
     // Start gRPC server
-    let addr = format!("{}:{}", host, port).parse()?;
+    let addr = format!("{}:{}", config.server.host, config.server.grpc_port).parse()?;
     tracing::info!("🚀 gRPC server listening on {}", addr);
 
-    Server::builder()
+    let mut server_builder = Server::builder()
         .add_service(CollectionServiceServer::new(collection_handler))
-        .add_service(CollectionManagementServiceServer::new(management_handler))
-        .serve(addr)
+        .add_service(CollectionManagementServiceServer::new(management_handler));
+
+    // Conditionally add embedding service if manager is available
+    if let Some(manager) = embedding_manager {
+        tracing::info!("🔌 Adding EmbeddingService to gRPC server");
+        let embedding_handler = EmbeddingHandler::new(manager);
+        server_builder = server_builder.add_service(EmbeddingServiceServer::new(embedding_handler));
+    }
+
+    server_builder
+        .serve_with_shutdown(addr, shutdown_signal())
         .await?;
 
+    tracing::info!("✅ Server shutdown complete");
+
     Ok(())
+}
+
+/// Wait for SIGTERM or SIGINT signal for graceful shutdown.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("🛑 Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+        },
+        _ = terminate => {
+            tracing::info!("🛑 Received SIGTERM, initiating graceful shutdown...");
+        },
+    }
 }

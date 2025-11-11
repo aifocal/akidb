@@ -1,0 +1,63 @@
+# Optional Ingress for exposing AkiDB APIs
+# Requires nginx-ingress-controller or similar
+# Update host to your domain
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: akidb-ingress
+  namespace: akidb
+  labels:
+    app: akidb
+  annotations:
+    # NGINX-specific annotations
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # TLS with cert-manager
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # Rate limiting (adjust as needed)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+
+    # Body size limit for large vector uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Timeouts for long-running queries
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - akidb.example.com
+      secretName: akidb-tls
+  rules:
+    - host: akidb.example.com
+      http:
+        paths:
+          # REST API
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: akidb-rest
+                port:
+                  number: 8080
+          # Health check
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: akidb-rest
+                port:
+                  number: 8080
+          # Metrics (consider restricting access)
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: akidb-rest
+                port:
+                  number: 8080

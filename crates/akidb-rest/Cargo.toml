@@ -1,0 +1,47 @@
+[package]
+name = "akidb-rest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "akidb-rest"
+path = "src/main.rs"
+
+[dependencies]
+# Internal dependencies
+akidb-core = { path = "../akidb-core" }
+akidb-service = { path = "../akidb-service" }
+akidb-metadata = { path = "../akidb-metadata" }
+
+# Database
+sqlx = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# REST framework
+axum = "0.6"
+tower = "0.4"
+tower-http = { version = "0.4", features = ["cors", "trace"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging and Tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-opentelemetry = "0.22"
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+
+[dev-dependencies]

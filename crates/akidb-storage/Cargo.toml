@@ -1,0 +1,74 @@
+[package]
+name = "akidb-storage"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[dependencies]
+# Core dependencies
+akidb-core = { path = "../akidb-core" }
+akidb-metadata = { path = "../akidb-metadata" }
+
+# Async runtime
+tokio = { version = "1.38", features = ["full"] }
+async-trait = "0.1"
+
+# Logging
+tracing = { workspace = true }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Concurrency
+parking_lot = "0.12"
+
+# Utilities
+bytes = "1.5"
+thiserror = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# AWS S3 (Week 2)
+aws-config = { version = "1.1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.15"
+
+# Parquet/Arrow (Week 3)
+parquet = "53.2"
+arrow = { version = "53.2", features = ["prettyprint"] }
+
+# Week 4 dependencies
+lru = "0.12"
+
+# Mock S3 dependencies
+rand = "0.8"
+md5 = "0.7"
+
+# Compression (Week 2 Day 5)
+flate2 = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"
+walkdir = "2.4"
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+# Phase 10 Week 3: Integration tests need SQLite and migrations
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate", "chrono", "uuid"] }
+akidb-metadata = { path = "../akidb-metadata" }
+# Large-scale load tests
+akidb-index = { path = "../akidb-index" }
+
+# Benchmarks
+[[bench]]
+name = "batch_upload_bench"
+harness = false
+
+[[bench]]
+name = "parallel_upload_bench"
+harness = false
+
+[[bench]]
+name = "mock_s3_bench"
+harness = false

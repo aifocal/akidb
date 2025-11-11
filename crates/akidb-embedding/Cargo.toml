@@ -36,6 +36,10 @@ candle-transformers = { version = "0.8.0", optional = true }
 tokenizers = { version = "0.15.0", optional = true }
 hf-hub = { version = "0.3.2", optional = true, default-features = false, features = ["tokio", "online"] }
 
+# ONNX Runtime (optional, gated behind "onnx" feature)
+ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }
+ndarray = { version = "0.15", optional = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
@@ -47,6 +51,12 @@ candle = [          # Candle embedding provider (pure Rust)
     "candle-core",
     "candle-nn",
     "candle-transformers",
+    "tokenizers",
+    "hf-hub"
+]
+onnx = [            # ONNX Runtime provider (universal GPU support)
+    "ort",
+    "ndarray",
     "tokenizers",
     "hf-hub"
 ]
