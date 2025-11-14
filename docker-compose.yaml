@@ -5,26 +5,42 @@ services:
   akidb-grpc:
     build:
       context: .
-      dockerfile: docker/Dockerfile.grpc
-    image: akidb/akidb-grpc:2.0.0-rc1
+      dockerfile: Dockerfile
+    image: akidb/akidb:2.0.0
     container_name: akidb-grpc
+    command: ["/app/akidb-grpc"]
     ports:
-      - "9000:9000"
+      - "9090:9090"
     volumes:
-      - akidb-data:/data/akidb
-      - akidb-logs:/var/log/akidb
+      - akidb-data:/data
+      - ./config.example.toml:/etc/akidb/config.toml:ro
     environment:
-      - RUST_LOG=info
+      # Database
+      - AKIDB_DB_PATH=sqlite:///data/akidb.db
+
+      # Server
       - AKIDB_HOST=0.0.0.0
-      - AKIDB_PORT=9000
-      - AKIDB_METADATA_DB=/data/akidb/metadata.db
+      - AKIDB_GRPC_PORT=9090
+
+      # Embedding provider configuration
+      - AKIDB_EMBEDDING_PROVIDER=python-bridge
+      - AKIDB_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - AKIDB_EMBEDDING_PYTHON_PATH=/opt/venv/bin/python3.11
+
+      # Logging
+      - AKIDB_LOG_LEVEL=info
+      - AKIDB_LOG_FORMAT=json
+
+      # Features
+      - AKIDB_METRICS_ENABLED=true
+      - AKIDB_VECTOR_PERSISTENCE_ENABLED=true
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "grpcurl", "-plaintext", "localhost:9000", "grpc.health.v1.Health/Check"]
+      test: ["CMD", "grpcurl", "-plaintext", "localhost:9090", "grpc.health.v1.Health/Check"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     networks:
       - akidb-network
 
@@ -32,19 +48,35 @@ services:
   akidb-rest:
     build:
       context: .
-      dockerfile: docker/Dockerfile.rest
-    image: akidb/akidb-rest:2.0.0-rc1
+      dockerfile: Dockerfile
+    image: akidb/akidb:2.0.0
     container_name: akidb-rest
+    command: ["/app/akidb-rest"]
     ports:
       - "8080:8080"
     volumes:
-      - akidb-data:/data/akidb
-      - akidb-logs:/var/log/akidb
+      - akidb-data:/data
+      - ./config.example.toml:/etc/akidb/config.toml:ro
     environment:
-      - RUST_LOG=info
+      # Database
+      - AKIDB_DB_PATH=sqlite:///data/akidb.db
+
+      # Server
       - AKIDB_HOST=0.0.0.0
-      - AKIDB_PORT=8080
-      - AKIDB_METADATA_DB=/data/akidb/metadata.db
+      - AKIDB_REST_PORT=8080
+
+      # Embedding provider configuration
+      - AKIDB_EMBEDDING_PROVIDER=python-bridge
+      - AKIDB_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - AKIDB_EMBEDDING_PYTHON_PATH=/opt/venv/bin/python3.11
+
+      # Logging
+      - AKIDB_LOG_LEVEL=info
+      - AKIDB_LOG_FORMAT=json
+
+      # Features
+      - AKIDB_METRICS_ENABLED=true
+      - AKIDB_VECTOR_PERSISTENCE_ENABLED=true
       - ENABLE_TRACING=true
       - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     restart: unless-stopped
@@ -53,7 +85,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     networks:
       - akidb-network
     depends_on:

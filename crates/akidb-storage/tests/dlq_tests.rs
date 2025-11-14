@@ -3,8 +3,6 @@
 use akidb_core::{CollectionId, DocumentId};
 use akidb_storage::dlq::{DLQConfig, DLQEntry, DeadLetterQueue};
 use akidb_storage::{StorageBackend, StorageConfig, TieringPolicy};
-use chrono::Utc;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[tokio::test]

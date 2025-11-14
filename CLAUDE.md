@@ -64,10 +64,11 @@ crates/
 
 - **akidb-core**: Pure domain layer. Contains domain models (`TenantDescriptor`, `DatabaseDescriptor`, `CollectionDescriptor`, `VectorDocument`) and traits (`TenantCatalog`, `DatabaseRepository`, `VectorIndex`). Zero database dependencies.
 - **akidb-metadata**: Implements core traits using SQLx + SQLite. Manages tenant/database/collection lifecycle, migrations, and metadata catalog.
-- **akidb-embedding**: Embedding service infrastructure. Defines `EmbeddingProvider` trait with three implementations:
+- **akidb-embedding**: Embedding service infrastructure. Defines `EmbeddingProvider` trait with implementations:
+  - `PythonBridgeProvider`: Python subprocess with ONNX Runtime + CoreML EP (production, default)
+  - `OnnxEmbeddingProvider`: Pure Rust ONNX Runtime (CPU-only, optional)
+  - `MlxEmbeddingProvider`: Python MLX backend (deprecated, Apple Silicon only)
   - `MockEmbeddingProvider`: Test implementation returning random embeddings
-  - `MlxEmbeddingProvider`: Python MLX backend for Apple Silicon (via PyO3)
-  - `CandleEmbeddingProvider`: Rust Candle backend (production, 36x faster than MLX)
 - **akidb-index**: Vector indexing implementations. Provides `BruteForceIndex` (baseline) and `InstantDistanceIndex` (production HNSW) for approximate nearest neighbor search.
 - **akidb-storage**: [NEW - Phase 6] Tiered storage layer with Write-Ahead Log (WAL) for durability, S3/MinIO object store integration, Parquet snapshots, and hot/warm/cold tiering policies.
 - **akidb-service**: Core business logic layer providing collection management and vector operations.
@@ -296,7 +297,11 @@ cp config.example.toml config.toml
 
 # 2. (Optional) Edit config.toml with your settings
 
-# 3. Start server
+# 3. (Optional) Set up Python environment for embeddings
+python3 -m venv .venv-onnx
+.venv-onnx/bin/pip install onnxruntime-silicon transformers tokenizers
+
+# 4. Start server
 cargo run -p akidb-rest
 ```
 
@@ -308,26 +313,38 @@ AkiDB supports multiple embedding providers via the `EmbeddingProvider` trait:
 
 ### Available Providers
 
-1. **Candle (Production - RECOMMENDED)**
+1. **Python Bridge + ONNX Runtime (Production - RECOMMENDED)**
    ```bash
-   # Build with Candle support
-   cargo build --features candle
+   # Build with Python bridge (default)
+   cargo build
 
-   # Run tests with Candle
-   cargo test --features candle
+   # Install Python dependencies (Python 3.13 recommended)
+   .venv-onnx/bin/pip install onnxruntime-silicon transformers tokenizers
+
+   # Run tests with ONNX provider
+   cargo test -p akidb-embedding
    ```
-   - **Performance**: 36x faster than MLX (200+ QPS vs 5.5 QPS)
-   - **Latency**: P95 <35ms (vs 182ms for MLX)
-   - **Platform**: Cross-platform (ARM + x86_64, macOS + Linux + Windows)
-   - **Models**: Supports 4 models (MiniLM, BERT-base, E5-small, Instructor-base)
-   - **Status**: Production-ready, v2.0.0 GA release
+   - **Performance**: Excellent on Apple Silicon with CoreML EP
+   - **Latency**: P95 <50ms (with GPU acceleration)
+   - **Platform**: Apple Silicon (macOS ARM), NVIDIA Jetson (CUDA/TensorRT)
+   - **Architecture**: Python subprocess with ONNX Runtime + CoreML EP for GPU acceleration
+   - **Status**: Production-ready, default provider in v2.0.0
 
-2. **MLX (Legacy - Apple Silicon Only)**
+2. **ONNX Runtime (Pure Rust - Optional)**
    ```bash
-   # Install Python dependencies (Python 3.13 required)
-   /opt/homebrew/bin/python3.13 -m pip install mlx transformers torch tokenizers
+   # Build with ONNX feature
+   cargo build --features onnx
 
-   # Build with MLX support
+   # Run tests
+   cargo test --features onnx
+   ```
+   - **Performance**: CPU-only unless custom-built with CoreML/TensorRT
+   - **Platform**: Cross-platform (ARM + x86_64, all OS)
+   - **Status**: Available but CPU-only, python-bridge preferred for GPU
+
+3. **MLX (Legacy - Deprecated)**
+   ```bash
+   # Build with MLX support (Python 3.13 required)
    PYO3_PYTHON=/opt/homebrew/bin/python3.13 cargo build --features mlx
 
    # Run tests with MLX
@@ -336,9 +353,9 @@ AkiDB supports multiple embedding providers via the `EmbeddingProvider` trait:
    - **Performance**: 5.5 QPS (GIL bottleneck)
    - **Latency**: P95 182ms
    - **Platform**: macOS ARM only (Apple Silicon)
-   - **Status**: Deprecated, being replaced by Candle
+   - **Status**: Deprecated, use python-bridge instead
 
-3. **Mock (Testing Only)**
+4. **Mock (Testing Only)**
    ```bash
    # Mock is always available, no feature flag needed
    cargo test -p akidb-embedding
@@ -346,35 +363,41 @@ AkiDB supports multiple embedding providers via the `EmbeddingProvider` trait:
    - Returns random embeddings for testing
    - Zero latency, no model loading
 
-### Candle Migration Plan
+### Migration History
 
-The Candle provider was introduced as part of a 6-phase migration from MLX:
+**Candle → ONNX Runtime Migration (November 2025)**
 
-| Phase | Duration | Goal | Status |
-|-------|----------|------|--------|
-| Phase 1 | 5 days | Foundation (basic inference) | ✅ Complete |
-| Phase 2 | 5 days | Performance (200+ QPS) | 📋 Planned |
-| Phase 3 | 5 days | Production hardening (observability) | 📋 Planned |
-| Phase 4 | 5 days | Multi-model support (4 models) | 📋 Planned |
-| Phase 5 | 5 days | Docker/K8s deployment | 📋 Planned |
-| Phase 6 | 6 weeks | GA release & production rollout | 📋 Planned |
+The project migrated from Candle to ONNX Runtime with CoreML Execution Provider for better GPU acceleration on Apple Silicon:
 
-**See:** `automatosx/PRD/CANDLE-PHASE-*-PRD.md` for detailed phase documentation
+- **Why**: CoreML EP provides native Apple GPU acceleration vs Candle's CPU-only Metal backend
+- **Architecture**: Python subprocess bridge for reliability and isolation
+- **Models**: Uses Hugging Face ONNX models with built-in tokenization
+- **Deprecated**: Candle code moved to `crates/akidb-embedding/src/candle.rs.deprecated`
+
+**See:** `automatosx/archive/candle-deprecated/` for historical Candle migration documentation
 
 ### Feature Flags
 
 ```toml
-# In Cargo.toml
+# In Cargo.toml (akidb-embedding)
 [features]
-default = ["candle"]
-candle = ["dep:candle-core", "dep:candle-nn", "dep:hf-hub"]
-mlx = ["dep:pyo3"]
+default = ["python-bridge"]  # Python bridge with ONNX+CoreML (most reliable)
+mlx = ["pyo3"]               # MLX embedding provider (deprecated)
+onnx = ["ort", "ndarray", "tokenizers", "hf-hub"]  # Pure Rust ONNX
+python-bridge = []           # Python subprocess bridge (recommended)
 ```
 
 **Environment Variables:**
 ```bash
-# For MLX provider (Python path)
-PYO3_PYTHON=/opt/homebrew/bin/python3.13
+# For Python-based providers (MLX, python-bridge)
+PYO3_PYTHON=/opt/homebrew/bin/python3.13  # or .venv-onnx/bin/python
+
+# Embedding provider selection
+AKIDB_EMBEDDING_PROVIDER=python-bridge  # default
+AKIDB_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+
+# Python path for subprocess bridge
+AKIDB_EMBEDDING_PYTHON_PATH=/opt/homebrew/bin/python3.13
 
 # Disable tokenizers parallelism (prevents warnings)
 export TOKENIZERS_PARALLELISM=false

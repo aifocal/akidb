@@ -10,11 +10,11 @@
 //! **WARNING:** These tests are resource-intensive and may take hours to complete.
 //! Run with: `cargo test --release --test large_scale_load_tests -- --nocapture --ignored --test-threads=1`
 
-use akidb_core::ids::{CollectionId, DocumentId};
+use akidb_core::ids::DocumentId;
 use akidb_core::traits::VectorIndex;
 use akidb_core::vector::VectorDocument;
-use akidb_index::brute_force::BruteForceIndex;
-use akidb_index::config::{DistanceMetric, IndexConfig};
+use akidb_core::collection::DistanceMetric;
+use akidb_index::BruteForceIndex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -29,14 +29,7 @@ fn random_vector(dim: usize) -> Vec<f32> {
 
 /// Helper: Create test index
 async fn create_test_index(dimension: usize) -> Arc<BruteForceIndex> {
-    let config = IndexConfig {
-        dimension,
-        metric: DistanceMetric::Cosine,
-        hnsw_m: 32,
-        hnsw_ef_construction: 200,
-        max_doc_count: 50_000_000,
-    };
-    Arc::new(BruteForceIndex::new(config))
+    Arc::new(BruteForceIndex::new(dimension, DistanceMetric::Cosine))
 }
 
 /// Helper: Bulk insert vectors
@@ -108,10 +101,10 @@ fn calculate_latencies(mut durations: Vec<Duration>) -> LatencyStats {
 #[tokio::test]
 #[ignore] // Run explicitly: cargo test --release test_a1_linear_qps_ramp -- --ignored --nocapture
 async fn test_a1_linear_qps_ramp() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test A1: Linear QPS Ramp (30 minutes)");
     println!("Goal: Find maximum sustainable QPS before P95 > 25ms");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     // Setup
     let dimension = 512;
@@ -146,7 +139,7 @@ async fn test_a1_linear_qps_ramp() {
             let query_vector = random_vector(dimension);
 
             let query_start = Instant::now();
-            let result = index.search(&query_vector, 10).await;
+            let result = index.search(&query_vector, 10, None).await;
             let query_latency = query_start.elapsed();
 
             match result {
@@ -194,9 +187,9 @@ async fn test_a1_linear_qps_ramp() {
     }
 
     // Summary
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test A1: Summary");
-    println!("{'='*80}");
+    println!("{}", "=".repeat(80));
 
     if let Some((qps, p95)) = degradation_point {
         println!("✅ Maximum sustainable QPS: ~{} QPS", qps - 100);
@@ -211,10 +204,10 @@ async fn test_a1_linear_qps_ramp() {
 #[tokio::test]
 #[ignore]
 async fn test_a2_sustained_peak_load() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test A2: Sustained Peak Load (60 minutes)");
     println!("Goal: Validate stability at 80% of max QPS");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     let dimension = 512;
     let index = create_test_index(dimension).await;
@@ -242,7 +235,7 @@ async fn test_a2_sustained_peak_load() {
         let query_vector = random_vector(dimension);
 
         let query_start = Instant::now();
-        let result = index.search(&query_vector, 10).await;
+        let result = index.search(&query_vector, 10, None).await;
         let query_latency = query_start.elapsed();
 
         match result {
@@ -345,10 +338,10 @@ async fn test_a2_sustained_peak_load() {
 #[tokio::test]
 #[ignore]
 async fn test_a3_burst_storm() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test A3: Burst Storm (15 minutes)");
     println!("Goal: Validate burst handling and recovery");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     let dimension = 512;
     let index = create_test_index(dimension).await;
@@ -372,7 +365,7 @@ async fn test_a3_burst_storm() {
         while baseline_start.elapsed() < Duration::from_secs(3 * 60) {
             let query_vector = random_vector(dimension);
             let start = Instant::now();
-            let _ = index.search(&query_vector, 10).await;
+            let _ = index.search(&query_vector, 10, None).await;
             baseline_latencies.push(start.elapsed());
 
             sleep(Duration::from_secs_f64(1.0 / baseline_qps as f64)).await;
@@ -387,8 +380,8 @@ async fn test_a3_burst_storm() {
         let semaphore = Arc::new(Semaphore::new(burst_clients));
         let index_arc: Arc<BruteForceIndex> = Arc::clone(&index);
         let mut burst_tasks = vec![];
-        let mut burst_latencies = Arc::new(tokio::sync::Mutex::new(Vec::new()));
-        let mut burst_errors = Arc::new(tokio::sync::Mutex::new(0u64));
+        let burst_latencies = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let burst_errors = Arc::new(tokio::sync::Mutex::new(0u64));
 
         let total_requests = (burst_qps * 60) as usize;
         for _ in 0..total_requests {
@@ -400,7 +393,7 @@ async fn test_a3_burst_storm() {
 
             let task = tokio::spawn(async move {
                 let start = Instant::now();
-                let result = index_clone.search(&query_vector, 10).await;
+                let result = index_clone.search(&query_vector, 10, None).await;
                 let latency = start.elapsed();
 
                 match result {
@@ -448,7 +441,7 @@ async fn test_a3_burst_storm() {
         while recovery_start.elapsed() < Duration::from_secs(3 * 60) {
             let query_vector = random_vector(dimension);
             let start = Instant::now();
-            let _ = index.search(&query_vector, 10).await;
+            let _ = index.search(&query_vector, 10, None).await;
             recovery_latencies.push(start.elapsed());
 
             sleep(Duration::from_secs_f64(1.0 / baseline_qps as f64)).await;
@@ -479,10 +472,10 @@ async fn test_a3_burst_storm() {
 #[tokio::test]
 #[ignore]
 async fn test_b1_large_dataset_ladder() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test B1: Large Dataset Ladder (45 minutes)");
     println!("Goal: Find maximum dataset size before OOM or severe degradation");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     let dimension = 512;
     let dataset_sizes = vec![100_000, 500_000, 1_000_000, 2_000_000];
@@ -514,7 +507,7 @@ async fn test_b1_large_dataset_ladder() {
         while start.elapsed() < query_duration {
             let query_vector = random_vector(dimension);
             let query_start = Instant::now();
-            let _ = index.search(&query_vector, 10).await;
+            let _ = index.search(&query_vector, 10, None).await;
             latencies.push(query_start.elapsed());
 
             sleep(interval).await;
@@ -541,10 +534,10 @@ async fn test_b1_large_dataset_ladder() {
 #[tokio::test]
 #[ignore]
 async fn test_b2_high_dimensional_vectors() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test B2: High-Dimensional Vectors (30 minutes)");
     println!("Goal: Validate support for max dimensions (4096)");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     let test_cases = vec![
         (50_000, 2048), // 4x normal
@@ -576,7 +569,7 @@ async fn test_b2_high_dimensional_vectors() {
         while start.elapsed() < query_duration {
             let query_vector = random_vector(dimension);
             let query_start = Instant::now();
-            let _ = index.search(&query_vector, 10).await;
+            let _ = index.search(&query_vector, 10, None).await;
             latencies.push(query_start.elapsed());
 
             sleep(interval).await;
@@ -599,10 +592,10 @@ async fn test_b2_high_dimensional_vectors() {
 #[tokio::test]
 #[ignore]
 async fn test_d1_extreme_concurrency() {
-    println!("\n{'='*80}");
+    println!("\n{}", "=".repeat(80));
     println!("Test D1: Extreme Concurrency (20 minutes)");
     println!("Goal: Find race conditions and deadlocks");
-    println!("{'='*80}\n");
+    println!("{}\n", "=".repeat(80));
 
     let dimension = 512;
     let index = Arc::new(create_test_index(dimension).await);
@@ -629,7 +622,7 @@ async fn test_d1_extreme_concurrency() {
             while start.elapsed() < duration {
                 let query_vector = random_vector(dimension);
 
-                match index_clone.search(&query_vector, 10).await {
+                match index_clone.search(&query_vector, 10, None).await {
                     Ok(_) => client_requests += 1,
                     Err(_) => client_errors += 1,
                 }

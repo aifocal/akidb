@@ -14,7 +14,6 @@ use akidb_core::CollectionId;
 use akidb_metadata::{Tier, TierStateRepository};
 use akidb_storage::tiering_manager::{TieringManager, TieringPolicyConfig};
 use chrono::{Duration, Utc};
-use sqlx::SqlitePool;
 use std::sync::Arc;
 
 /// Helper: Create in-memory tiering manager for testing
@@ -236,7 +235,7 @@ async fn test_lru_candidate_selection() {
             .expect("Failed to init tier state");
 
         // Simulate different access times (older to newer)
-        let access_time = Utc::now() - Duration::hours((5 - i) as i64);
+        let _access_time = Utc::now() - Duration::hours((5 - i) as i64);
         // Note: Direct SQL update for testing purposes
         // In production, TierStateRepository methods should be used
 
@@ -292,9 +291,9 @@ async fn test_promotion_candidates() {
     // For now, we verify the tier states are set correctly
 
     // Verify: All collections are in warm tier
-    for i in 0..3 {
-        let coll_id = CollectionId::new(); // Note: Need to track these IDs properly
-                                           // Test simplified for now
+    for _i in 0..3 {
+        let _coll_id = CollectionId::new(); // Note: Need to track these IDs properly
+                                            // Test simplified for now
     }
 }
 

@@ -19,11 +19,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
         rust: [stable]
+        python-version: ['3.12']
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          cd crates/akidb-embedding/python
+          pip install -r requirements.txt
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -71,10 +83,15 @@ jobs:
   # ============================================================================
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -99,10 +116,15 @@ jobs:
   # ============================================================================
   security:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -120,7 +142,7 @@ jobs:
   # ============================================================================
   build-docker:
     name: Build Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
@@ -143,11 +165,16 @@ jobs:
   # ============================================================================
   benchmark:
     name: Run Benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: false  # Disable by default, enable manually via workflow_dispatch
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -174,10 +201,21 @@ jobs:
   # ============================================================================
   coverage:
     name: Code Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          cd crates/akidb-embedding/python
+          pip install -r requirements.txt
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1

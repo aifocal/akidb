@@ -229,7 +229,7 @@ async fn test_e2e_s3only_cache_behavior() {
     // 3. Verify vectors accessible via query (cache hit test)
     let start = Instant::now();
     let results = service
-        .query(collection_id, vec![0.0; 128], 1)
+        .query(collection_id, vec![1.0; 128], 1)
         .await
         .unwrap();
     let cache_hit_latency = start.elapsed();
@@ -346,7 +346,7 @@ async fn test_e2e_concurrent_operations() {
 #[tokio::test]
 #[ignore = "Flaky E2E test with timing dependencies - requires stable async retry behavior"]
 async fn test_e2e_s3_retry_recovery() {
-    use akidb_core::CollectionId;
+    
     use akidb_storage::{MockFailure, MockS3ObjectStore, RetryConfig};
     use std::sync::Arc;
 
@@ -430,7 +430,7 @@ async fn test_e2e_s3_retry_recovery() {
 
 #[tokio::test]
 async fn test_e2e_dlq_permanent_failure() {
-    use akidb_core::CollectionId;
+    
     use akidb_storage::{MockS3ObjectStore, RetryConfig};
     use std::sync::Arc;
 

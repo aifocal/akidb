@@ -216,11 +216,16 @@ impl StorageMetrics {
 /// Cache statistics for S3Only policy
 #[derive(Debug, Clone)]
 pub struct CacheStats {
-    pub size: usize,     // Current cache size
-    pub capacity: usize, // Max cache size
-    pub hit_rate: f64,   // Hit rate (0.0 - 1.0)
-    pub hits: u64,       // Total cache hits
-    pub misses: u64,     // Total cache misses
+    /// Current cache size in bytes
+    pub size: usize,
+    /// Maximum cache capacity in bytes
+    pub capacity: usize,
+    /// Cache hit rate (0.0 - 1.0)
+    pub hit_rate: f64,
+    /// Total number of cache hits
+    pub hits: u64,
+    /// Total number of cache misses
+    pub misses: u64,
 }
 
 /// Storage backend integrating WAL, Snapshotter, and ObjectStore
@@ -294,9 +299,11 @@ pub struct StorageBackend {
 
     // Day 4: Retry logic
     retry_queue: Arc<RwLock<VecDeque<S3RetryTask>>>,
+    #[allow(dead_code)] // Used in retry_worker background task
     retry_notify: Arc<Notify>,
     retry_handle: Option<JoinHandle<()>>,
     dead_letter_queue: Arc<DeadLetterQueue>,
+    #[allow(dead_code)] // Used in retry_worker background task
     retry_config: RetryConfig,
 
     // Phase 7 Week 1: Circuit breaker
@@ -1730,6 +1737,14 @@ impl StorageBackend {
         }
     }
 
+    /// Gracefully shuts down the storage backend and all background workers.
+    ///
+    /// This will:
+    /// - Abort S3 uploader tasks
+    /// - Stop compaction worker
+    /// - Stop retry worker
+    /// - Flush pending WAL entries
+    /// - Release all resources
     pub async fn shutdown(&self) -> CoreResult<()> {
         tracing::info!("StorageBackend shutting down");
 

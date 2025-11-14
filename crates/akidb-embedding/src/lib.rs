@@ -11,20 +11,20 @@
 
 #[cfg(feature = "mlx")]
 mod mlx;
-#[cfg(feature = "candle")]
-mod candle;
 #[cfg(feature = "onnx")]
 mod onnx;
+#[cfg(feature = "python-bridge")]
+mod python_bridge;
 mod mock;
 mod provider;
 mod types;
 
 #[cfg(feature = "mlx")]
 pub use mlx::MlxEmbeddingProvider;
-#[cfg(feature = "candle")]
-pub use candle::CandleEmbeddingProvider;
 #[cfg(feature = "onnx")]
-pub use onnx::OnnxEmbeddingProvider;
+pub use onnx::{ExecutionProviderConfig, OnnxConfig, OnnxEmbeddingProvider};
+#[cfg(feature = "python-bridge")]
+pub use python_bridge::PythonBridgeProvider;
 pub use mock::MockEmbeddingProvider;
 pub use provider::EmbeddingProvider;
 pub use types::{

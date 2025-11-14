@@ -1,7 +1,6 @@
 //! Load test client for executing operations
 
-use akidb_core::ids::{CollectionId, DocumentId};
-use akidb_core::vector::VectorDocument;
+use akidb_core::ids::CollectionId;
 use std::time::Duration;
 
 /// Operation types for load testing

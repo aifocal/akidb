@@ -30,7 +30,7 @@ jobs:
   # Smoke test - runs on every PR and push (30 seconds)
   smoke-test:
     name: Smoke Test (30s)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: github.event_name == 'pull_request' || github.event_name == 'push'
 
@@ -76,7 +76,7 @@ jobs:
   # Quick load tests - runs on schedule and manual trigger (45 minutes)
   quick-load-tests:
     name: Quick Load Tests (45 min)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: |
       github.event_name == 'schedule' ||
@@ -138,7 +138,7 @@ jobs:
   # Full load tests - runs only on manual trigger with "full" option (4+ hours)
   full-load-tests:
     name: Full Load Tests (4+ hours)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     if: |
       github.event_name == 'workflow_dispatch' &&
@@ -199,7 +199,7 @@ jobs:
   # Aggregate results and check for regressions
   check-results:
     name: Check Load Test Results
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [quick-load-tests]
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
 

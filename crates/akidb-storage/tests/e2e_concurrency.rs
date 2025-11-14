@@ -11,7 +11,7 @@ use akidb_core::ids::{CollectionId, DocumentId};
 use akidb_core::vector::VectorDocument;
 use akidb_storage::batch_config::S3BatchConfig;
 use akidb_storage::batch_uploader::BatchUploader;
-use akidb_storage::object_store::{MockS3ObjectStore, ObjectStore};
+use akidb_storage::object_store::MockS3ObjectStore;
 use akidb_storage::parallel_uploader::{ParallelConfig, ParallelUploader};
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,7 +40,7 @@ async fn test_concurrent_uploads_same_collection() {
         let cid = collection_id;
 
         let handle = tokio::spawn(async move {
-            for i in 0..100 {
+            for _i in 0..100 {
                 let doc = VectorDocument::new(DocumentId::new(), vec![worker_id as f32; 128]);
                 uploader.add_document(cid, 128, doc).await.unwrap();
             }

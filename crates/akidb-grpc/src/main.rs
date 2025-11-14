@@ -112,18 +112,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let collection_count = service.list_collections().await?.len();
     tracing::info!("✅ Loaded {} collection(s)", collection_count);
 
-    // Initialize EmbeddingManager for MLX embeddings (optional)
-    tracing::info!("🤖 Initializing MLX EmbeddingManager...");
-    let embedding_manager = match EmbeddingManager::new("qwen3-0.6b-4bit").await {
+    // Initialize EmbeddingManager from configuration
+    let embedding_config = &config.embedding;
+    tracing::info!(
+        "🤖 Initializing EmbeddingManager (provider: {}, model: {})...",
+        embedding_config.provider,
+        embedding_config.model
+    );
+
+    let embedding_manager = match EmbeddingManager::from_config(
+        &embedding_config.provider,
+        &embedding_config.model,
+        embedding_config.python_path.as_deref(),
+    )
+    .await
+    {
         Ok(manager) => {
             tracing::info!(
-                "✅ MLX EmbeddingManager initialized (model: qwen3-0.6b-4bit, dimension: {})",
+                "✅ EmbeddingManager initialized (provider: {}, model: {}, dimension: {})",
+                embedding_config.provider,
+                embedding_config.model,
                 manager.dimension()
             );
             Some(Arc::new(manager))
         }
         Err(e) => {
-            tracing::warn!("⚠️  Failed to initialize EmbeddingManager: {}. Embedding service will not be available.", e);
+            tracing::warn!(
+                "⚠️  Failed to initialize EmbeddingManager: {}. Embedding service will not be available.",
+                e
+            );
             None
         }
     };

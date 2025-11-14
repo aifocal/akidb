@@ -6,7 +6,7 @@
 //! - Service operations record metrics
 //! - Metrics accuracy
 
-use akidb_core::{CollectionId, DistanceMetric, DocumentId, VectorDocument};
+use akidb_core::{DistanceMetric, DocumentId, VectorDocument};
 use akidb_service::{CollectionService, ServiceMetrics};
 
 #[tokio::test]
@@ -52,7 +52,7 @@ async fn test_metrics_export_prometheus_format() {
 
 #[tokio::test]
 async fn test_vector_operations_record_metrics() {
-    use akidb_service::metrics::*;
+    
 
     let service = CollectionService::new();
 
@@ -69,7 +69,7 @@ async fn test_vector_operations_record_metrics() {
 
     // Insert vector
     let doc = VectorDocument::new(DocumentId::new(), vec![0.1; 128]);
-    let doc_id = service.insert(collection_id, doc).await.unwrap();
+    let _doc_id = service.insert(collection_id, doc).await.unwrap();
 
     // Perform search
     let query = vec![0.1; 128];

@@ -261,7 +261,7 @@ mod tests {
     #[tokio::test]
     async fn test_local_store_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let store = LocalObjectStore::new(temp_dir.path()).await.unwrap();
+        let _store = LocalObjectStore::new(temp_dir.path()).await.unwrap();
         assert!(temp_dir.path().exists());
     }
 

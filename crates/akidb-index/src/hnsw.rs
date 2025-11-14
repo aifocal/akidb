@@ -498,7 +498,13 @@ impl HnswIndex {
         }
 
         // Get node vector and neighbor list (immutable borrows)
-        let node_vector = state.nodes.get(&node_id).unwrap().vector.clone();
+        let node_vector = match state.nodes.get(&node_id) {
+            Some(node) => node.vector.clone(),
+            None => {
+                // Node was deleted or index is corrupted - skip pruning
+                return;
+            }
+        };
         let neighbor_ids: Vec<DocumentId> = state.layers[layer][&node_id].clone();
 
         // Compute distances to all neighbors

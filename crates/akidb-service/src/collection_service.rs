@@ -912,6 +912,12 @@ impl CollectionService {
             }
         }
 
+        // Store in collections cache (BUG FIX #7: Required for insert() validation)
+        {
+            let mut collections = self.collections.write().await;
+            collections.insert(collection.collection_id, collection.clone());
+        }
+
         // Store in indexes map
         let mut indexes = self.indexes.write().await;
         indexes.insert(collection.collection_id, index);
@@ -927,8 +933,22 @@ impl CollectionService {
 
     /// Unload collection from memory (called on deletion).
     pub async fn unload_collection(&self, collection_id: CollectionId) -> CoreResult<()> {
+        // Remove from collections cache (BUG FIX #7: Keep cache consistent)
+        {
+            let mut collections = self.collections.write().await;
+            collections.remove(&collection_id);
+        }
+
+        // Remove from indexes
         let mut indexes = self.indexes.write().await;
         indexes.remove(&collection_id);
+
+        // Remove from storage backends
+        {
+            let mut backends = self.storage_backends.write().await;
+            backends.remove(&collection_id);
+        }
+
         Ok(())
     }
 
@@ -1022,12 +1042,12 @@ impl CollectionService {
                 .max(metrics.circuit_breaker_error_rate);
 
             // Use most recent snapshot time
-            if metrics.last_snapshot_at.is_some() {
+            if let Some(snapshot_at) = metrics.last_snapshot_at {
                 total_metrics.last_snapshot_at = Some(
                     total_metrics
                         .last_snapshot_at
-                        .unwrap_or(metrics.last_snapshot_at.unwrap())
-                        .max(metrics.last_snapshot_at.unwrap()),
+                        .map(|existing| existing.max(snapshot_at))
+                        .unwrap_or(snapshot_at)
                 );
             }
 
@@ -1877,7 +1897,7 @@ mod tests {
 
     // Helper to create test database with migrations
     async fn create_test_db() -> sqlx::Pool<sqlx::Sqlite> {
-        use sqlx::migrate::MigrateDatabase;
+        
 
         let db_url = "sqlite::memory:";
         let pool = sqlx::SqlitePool::connect(db_url).await.unwrap();

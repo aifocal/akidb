@@ -327,7 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_test_metrics_percentiles() {
-        let mut metrics = LoadTestMetrics {
+        let metrics = LoadTestMetrics {
             total_requests: 100,
             successful_requests: 98,
             failed_requests: 2,

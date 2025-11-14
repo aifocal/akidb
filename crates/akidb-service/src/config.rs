@@ -20,6 +20,10 @@ pub struct Config {
     /// Database configuration
     pub database: DatabaseConfig,
 
+    /// Embedding provider configuration
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
+
     /// Optional features
     #[serde(default)]
     pub features: FeaturesConfig,
@@ -67,6 +71,22 @@ pub struct DatabaseConfig {
     /// Connection timeout in seconds (default: 5)
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout_seconds: u64,
+}
+
+/// Embedding provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingConfig {
+    /// Embedding provider type: "mlx", "python-bridge", "mock" (default: "mlx")
+    #[serde(default = "default_embedding_provider")]
+    pub provider: String,
+
+    /// Model name (default: "sentence-transformers/all-MiniLM-L6-v2")
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+
+    /// Optional path to Python executable for python-bridge provider
+    #[serde(default)]
+    pub python_path: Option<String>,
 }
 
 /// Optional features configuration
@@ -167,11 +187,20 @@ fn default_log_format() -> String {
     "pretty".to_string()
 }
 
+fn default_embedding_provider() -> String {
+    "mlx".to_string()
+}
+
+fn default_embedding_model() -> String {
+    "sentence-transformers/all-MiniLM-L6-v2".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
+            embedding: EmbeddingConfig::default(),
             features: FeaturesConfig::default(),
             hnsw: HnswConfig::default(),
             logging: LoggingConfig::default(),
@@ -196,6 +225,16 @@ impl Default for DatabaseConfig {
             path: default_db_path(),
             max_connections: default_max_connections(),
             connection_timeout_seconds: default_connection_timeout(),
+        }
+    }
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_embedding_provider(),
+            model: default_embedding_model(),
+            python_path: None,
         }
     }
 }
@@ -310,6 +349,18 @@ impl Config {
             if let Ok(enabled) = enabled.parse() {
                 self.features.vector_persistence_enabled = enabled;
             }
+        }
+
+        if let Ok(provider) = std::env::var("AKIDB_EMBEDDING_PROVIDER") {
+            self.embedding.provider = provider;
+        }
+
+        if let Ok(model) = std::env::var("AKIDB_EMBEDDING_MODEL") {
+            self.embedding.model = model;
+        }
+
+        if let Ok(python_path) = std::env::var("AKIDB_EMBEDDING_PYTHON_PATH") {
+            self.embedding.python_path = Some(python_path);
         }
     }
 

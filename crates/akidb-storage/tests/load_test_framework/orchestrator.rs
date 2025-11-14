@@ -1,9 +1,9 @@
 //! Load test orchestrator for running scenarios
 
-use super::client::{LoadTestClient, OperationType};
+use super::client::LoadTestClient;
 use super::metrics::{LoadTestMetrics, MetricsCollector};
 use super::profiles::{LoadProfile, WorkloadMix};
-use super::reporter::{ReportFormat, ResultWriter};
+use super::reporter::ResultWriter;
 use super::SuccessCriteria;
 use akidb_core::ids::CollectionId;
 use std::sync::Arc;

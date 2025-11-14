@@ -361,7 +361,7 @@ impl TieringManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use akidb_core::{CollectionDescriptor, DatabaseDescriptor, DatabaseId, DistanceMetric, TenantCatalog, TenantDescriptor, TenantId, TenantQuota};
+    use akidb_core::{CollectionDescriptor, DatabaseDescriptor, TenantCatalog, TenantDescriptor};
     use akidb_metadata::{SqliteCollectionRepository, SqliteDatabaseRepository, SqliteTenantCatalog};
 
     async fn setup() -> (TieringManager, sqlx::SqlitePool) {

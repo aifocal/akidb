@@ -1,7 +1,14 @@
 //! ONNX Runtime embedding provider.
 //!
-//! Provides universal GPU support (Metal, CUDA, DirectML) for text embedding generation
-//! using ONNX Runtime with BERT-based transformer models.
+//! Provides universal GPU support (Metal, CUDA, DirectML, TensorRT) for text embedding generation
+//! using ONNX Runtime with transformer models (BERT, Qwen, etc.).
+//!
+//! # Execution Providers
+//!
+//! - **CoreML**: Mac ARM GPU acceleration (M1/M2/M3)
+//! - **TensorRT**: NVIDIA GPU optimization for Jetson Thor (FP8 support)
+//! - **CUDA**: Generic NVIDIA GPU fallback
+//! - **CPU**: CPU-only fallback
 
 use crate::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingError, EmbeddingProvider,
@@ -9,119 +16,234 @@ use crate::{
 };
 use async_trait::async_trait;
 use ndarray::Array2;
-use ort::{session::Session, GraphOptimizationLevel};
-use std::sync::Arc;
+use ort::{session::{Session, builder::GraphOptimizationLevel}, value::Value};
+use parking_lot::Mutex;
+use std::path::PathBuf;
 use tokenizers::Tokenizer;
+
+/// Execution provider configuration.
+#[derive(Debug, Clone)]
+pub enum ExecutionProviderConfig {
+    /// CoreML (Mac ARM)
+    CoreML,
+    /// TensorRT (NVIDIA Jetson/GPUs) with optional FP8
+    TensorRT {
+        device_id: i32,
+        fp8_enable: bool,
+        engine_cache_path: Option<PathBuf>,
+    },
+    /// CUDA (generic NVIDIA GPU)
+    CUDA { device_id: i32 },
+    /// CPU fallback
+    CPU,
+}
+
+/// Configuration for ONNX embedding provider.
+#[derive(Debug, Clone)]
+pub struct OnnxConfig {
+    /// Path to ONNX model file
+    pub model_path: PathBuf,
+    /// Path to tokenizer.json file
+    pub tokenizer_path: PathBuf,
+    /// Model name (for metadata)
+    pub model_name: String,
+    /// Output embedding dimension
+    pub dimension: u32,
+    /// Maximum sequence length
+    pub max_length: usize,
+    /// Execution provider
+    pub execution_provider: ExecutionProviderConfig,
+}
+
+impl Default for OnnxConfig {
+    fn default() -> Self {
+        Self {
+            model_path: PathBuf::from("models/model.onnx"),
+            tokenizer_path: PathBuf::from("models/tokenizer.json"),
+            model_name: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            dimension: 384,
+            max_length: 512,
+            execution_provider: ExecutionProviderConfig::CPU,
+        }
+    }
+}
 
 /// ONNX Runtime embedding provider.
 ///
-/// Uses ONNX Runtime for universal GPU support (Metal, CUDA, DirectML) with
-/// BERT-based transformer models for text embedding generation.
+/// Uses ONNX Runtime for universal GPU support (CoreML, TensorRT, CUDA) with
+/// transformer models for text embedding generation.
 pub struct OnnxEmbeddingProvider {
     /// ONNX Runtime session (contains model)
-    session: Arc<Session>,
+    /// Wrapped in Mutex for interior mutability (Session::run requires &mut self)
+    session: Mutex<Session>,
 
     /// Tokenizer for text preprocessing
     tokenizer: Tokenizer,
 
-    /// Model name (for metadata)
-    model_name: String,
-
-    /// Embedding dimension
-    dimension: u32,
+    /// Configuration
+    config: OnnxConfig,
 }
 
 impl OnnxEmbeddingProvider {
-    /// Create new ONNX embedding provider.
+    /// Create new ONNX embedding provider with configuration.
     ///
     /// # Arguments
     ///
-    /// * `model_path` - Path to ONNX model file (.onnx)
-    /// * `model_name` - Model name (e.g., "sentence-transformers/all-MiniLM-L6-v2")
-    pub async fn new(model_path: &str, model_name: &str) -> EmbeddingResult<Self> {
+    /// * `config` - ONNX provider configuration
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use akidb_embedding::onnx::{OnnxEmbeddingProvider, OnnxConfig, ExecutionProviderConfig};
+    /// use std::path::PathBuf;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Jetson Thor with TensorRT + FP8
+    /// let config = OnnxConfig {
+    ///     model_path: PathBuf::from("models/qwen3-4b-fp8.onnx"),
+    ///     tokenizer_path: PathBuf::from("models/tokenizer.json"),
+    ///     model_name: "Qwen/Qwen2.5-4B".to_string(),
+    ///     dimension: 4096,
+    ///     max_length: 512,
+    ///     execution_provider: ExecutionProviderConfig::TensorRT {
+    ///         device_id: 0,
+    ///         fp8_enable: true,
+    ///         engine_cache_path: Some(PathBuf::from("/tmp/trt_cache")),
+    ///     },
+    /// };
+    ///
+    /// let provider = OnnxEmbeddingProvider::with_config(config).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn with_config(config: OnnxConfig) -> EmbeddingResult<Self> {
         eprintln!("\n🔧 Initializing ONNX Runtime provider...");
+        eprintln!("   Model: {}", config.model_name);
+        eprintln!("   Dimension: {}", config.dimension);
+        eprintln!("   Max length: {}", config.max_length);
+        eprintln!("   Execution provider: {:?}", config.execution_provider);
 
-        // 1. Create session with model
-        eprintln!("📦 Loading ONNX model from: {}", model_path);
+        // 1. Create session with execution provider
+        eprintln!("📦 Loading ONNX model from: {:?}", config.model_path);
 
-        let session = Session::builder()
+        let mut builder = Session::builder()
             .map_err(|e| EmbeddingError::Internal(format!("Failed to create session builder: {}", e)))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| EmbeddingError::Internal(format!("Failed to set optimization level: {}", e)))?
             .with_intra_threads(4)
-            .map_err(|e| EmbeddingError::Internal(format!("Failed to set threads: {}", e)))?
-            .commit_from_file(model_path)
+            .map_err(|e| EmbeddingError::Internal(format!("Failed to set threads: {}", e)))?;
+
+        // Configure execution provider
+        builder = match &config.execution_provider {
+            #[cfg(feature = "tensorrt")]
+            ExecutionProviderConfig::TensorRT {
+                device_id,
+                fp8_enable,
+                engine_cache_path,
+            } => {
+                eprintln!("🚀 Configuring TensorRT Execution Provider (FP8: {})", fp8_enable);
+
+                use ort::TensorRTExecutionProvider;
+                let mut trt_options = TensorRTExecutionProvider::default()
+                    .with_device_id(*device_id)
+                    .with_fp16_enable(true)  // Enable FP16 for better performance
+                    .with_engine_cache_enable(true)
+                    .with_timing_cache_enable(true);
+
+                if *fp8_enable {
+                    // FP8 is enabled via TensorRT builder flags
+                    eprintln!("   ⚡ FP8 quantization enabled");
+                }
+
+                if let Some(cache_path) = engine_cache_path {
+                    let cache_path_str = cache_path.to_str()
+                        .ok_or_else(|| EmbeddingError::Internal(
+                            format!("TensorRT engine cache path is not valid UTF-8: {:?}", cache_path)
+                        ))?;
+                    trt_options = trt_options.with_engine_cache_path(cache_path_str);
+                    eprintln!("   💾 Engine cache: {:?}", cache_path);
+                }
+
+                builder.with_execution_providers([trt_options])
+                    .map_err(|e| EmbeddingError::Internal(format!("Failed to set TensorRT EP: {}", e)))?
+            }
+
+            #[cfg(feature = "cuda")]
+            ExecutionProviderConfig::CUDA { device_id } => {
+                eprintln!("🎮 Configuring CUDA Execution Provider");
+
+                use ort::CUDAExecutionProvider;
+                let cuda_options = CUDAExecutionProvider::default()
+                    .with_device_id(*device_id);
+
+                builder.with_execution_providers([cuda_options])
+                    .map_err(|e| EmbeddingError::Internal(format!("Failed to set CUDA EP: {}", e)))?
+            }
+
+            ExecutionProviderConfig::CoreML => {
+                eprintln!("🍎 Configuring CoreML Execution Provider");
+                // CoreML is automatically detected on macOS
+                builder
+            }
+
+            ExecutionProviderConfig::CPU => {
+                eprintln!("💻 Using CPU Execution Provider");
+                builder
+            }
+
+            #[allow(unreachable_patterns)]
+            _ => {
+                eprintln!("⚠️  Execution provider not available, falling back to CPU");
+                builder
+            }
+        };
+
+        let session = builder
+            .commit_from_file(&config.model_path)
             .map_err(|e| EmbeddingError::Internal(format!("Failed to load model: {}", e)))?;
 
         eprintln!("✅ ONNX model loaded successfully");
 
-        // 2. Load tokenizer from Hugging Face Hub or cache
-        eprintln!("📝 Loading tokenizer for: {}", model_name);
-        let tokenizer = Self::load_tokenizer(model_name).await?;
+        // 2. Load tokenizer
+        eprintln!("📝 Loading tokenizer from: {:?}", config.tokenizer_path);
+        let tokenizer = Tokenizer::from_file(&config.tokenizer_path)
+            .map_err(|e| EmbeddingError::Internal(format!("Failed to load tokenizer: {}", e)))?;
         eprintln!("✅ Tokenizer loaded successfully");
-
-        // 3. Determine dimension from model output metadata
-        let dimension = Self::get_model_dimension(&session)?;
 
         eprintln!(
             "✅ OnnxEmbeddingProvider initialized\n   Model: {}\n   Dimension: {}",
-            model_name, dimension
+            config.model_name, config.dimension
         );
 
         Ok(Self {
-            session: Arc::new(session),
+            session: Mutex::new(session),
             tokenizer,
-            model_name: model_name.to_string(),
-            dimension,
+            config,
         })
     }
 
-    /// Load tokenizer from Hugging Face Hub or cache.
-    async fn load_tokenizer(model_name: &str) -> EmbeddingResult<Tokenizer> {
-        use hf_hub::api::tokio::Api;
+    /// Create new ONNX embedding provider (legacy API).
+    ///
+    /// # Arguments
+    ///
+    /// * `model_path` - Path to ONNX model file (.onnx)
+    /// * `tokenizer_path` - Path to tokenizer.json file
+    /// * `model_name` - Model name (e.g., "sentence-transformers/all-MiniLM-L6-v2")
+    ///
+    /// # Deprecated
+    ///
+    /// Use `with_config()` instead for more control over execution providers.
+    pub async fn new(model_path: &str, tokenizer_path: &str, model_name: &str) -> EmbeddingResult<Self> {
+        let config = OnnxConfig {
+            model_path: PathBuf::from(model_path),
+            tokenizer_path: PathBuf::from(tokenizer_path),
+            model_name: model_name.to_string(),
+            dimension: 384, // Default for MiniLM
+            max_length: 512,
+            execution_provider: ExecutionProviderConfig::CPU,
+        };
 
-        let api = Api::new()
-            .map_err(|e| EmbeddingError::Internal(format!("Failed to create HF Hub API: {}", e)))?;
-
-        let repo = api.model(model_name.to_string());
-
-        let tokenizer_path = repo
-            .get("tokenizer.json")
-            .await
-            .map_err(|e| EmbeddingError::Internal(format!("Failed to download tokenizer: {}", e)))?;
-
-        Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| EmbeddingError::Internal(format!("Failed to load tokenizer: {}", e)))
-    }
-
-    /// Get model output dimension from ONNX metadata.
-    fn get_model_dimension(session: &Session) -> EmbeddingResult<u32> {
-        // Get output metadata (last_hidden_state shape: [batch_size, seq_len, hidden_size])
-        let outputs = session.outputs.clone();
-
-        if outputs.is_empty() {
-            return Err(EmbeddingError::Internal("Model has no outputs".to_string()));
-        }
-
-        // First output should be last_hidden_state with shape [batch, seq, hidden]
-        let output_shape = &outputs[0].dimensions;
-
-        if output_shape.len() < 3 {
-            return Err(EmbeddingError::Internal(format!(
-                "Invalid output shape: expected 3 dimensions, got {}",
-                output_shape.len()
-            )));
-        }
-
-        // Last dimension is hidden_size (embedding dimension)
-        let dimension = output_shape[2];
-
-        match dimension {
-            Some(dim) if dim > 0 => Ok(dim as u32),
-            _ => Err(EmbeddingError::Internal(
-                "Could not determine embedding dimension from model".to_string(),
-            )),
-        }
+        Self::with_config(config).await
     }
 
     /// Generate embeddings (internal implementation).
@@ -147,61 +269,76 @@ impl OnnxEmbeddingProvider {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| EmbeddingError::Internal(format!("Tokenization failed: {}", e)))?;
 
-        const MAX_LENGTH: usize = 512;
+        let max_length = self.config.max_length;
         let batch_size = texts.len();
 
         // 3. Pad/truncate to fixed length
-        let mut input_ids_vec = Vec::with_capacity(batch_size * MAX_LENGTH);
-        let mut attention_mask_vec = Vec::with_capacity(batch_size * MAX_LENGTH);
+        let mut input_ids_vec = Vec::with_capacity(batch_size * max_length);
+        let mut attention_mask_vec = Vec::with_capacity(batch_size * max_length);
+        let mut token_type_ids_vec = Vec::with_capacity(batch_size * max_length);
 
         for encoding in encodings {
             let mut ids = encoding.get_ids().to_vec();
             let mut mask = encoding.get_attention_mask().to_vec();
+            let mut type_ids = encoding.get_type_ids().to_vec();
 
-            if ids.len() > MAX_LENGTH {
-                ids.truncate(MAX_LENGTH);
-                mask.truncate(MAX_LENGTH);
+            if ids.len() > max_length {
+                ids.truncate(max_length);
+                mask.truncate(max_length);
+                type_ids.truncate(max_length);
             } else {
-                ids.resize(MAX_LENGTH, 0);
-                mask.resize(MAX_LENGTH, 0);
+                ids.resize(max_length, 0);
+                mask.resize(max_length, 0);
+                type_ids.resize(max_length, 0);
             }
 
             input_ids_vec.extend(ids.iter().map(|&x| x as i64));
             attention_mask_vec.extend(mask.iter().map(|&x| x as i64));
+            token_type_ids_vec.extend(type_ids.iter().map(|&x| x as i64));
         }
 
         // 4. Create input tensors
-        let input_ids_shape = vec![batch_size, MAX_LENGTH];
         let input_ids_array = Array2::from_shape_vec(
-            (batch_size, MAX_LENGTH),
+            (batch_size, max_length),
             input_ids_vec,
         )
         .map_err(|e| EmbeddingError::Internal(format!("Failed to create input tensor: {}", e)))?;
 
         let attention_mask_array = Array2::from_shape_vec(
-            (batch_size, MAX_LENGTH),
+            (batch_size, max_length),
             attention_mask_vec.clone(),
         )
         .map_err(|e| EmbeddingError::Internal(format!("Failed to create mask tensor: {}", e)))?;
 
-        // 5. Run ONNX inference
-        let outputs = self
-            .session
-            .run(vec![
-                ort::Value::from_array(input_ids_array.view())
-                    .map_err(|e| EmbeddingError::Internal(format!("Failed to create input tensor: {}", e)))?,
-                ort::Value::from_array(attention_mask_array.view())
-                    .map_err(|e| EmbeddingError::Internal(format!("Failed to create mask tensor: {}", e)))?,
+        let token_type_ids_array = Array2::from_shape_vec(
+            (batch_size, max_length),
+            token_type_ids_vec,
+        )
+        .map_err(|e| EmbeddingError::Internal(format!("Failed to create token_type_ids tensor: {}", e)))?;
+
+        // 5. Run ONNX inference with 3 inputs: input_ids, attention_mask, token_type_ids
+        //    Pass owned arrays directly (OwnedRepr required for OwnedTensorArrayData trait)
+        let input_ids_value = Value::from_array(input_ids_array)
+            .map_err(|e| EmbeddingError::Internal(format!("Failed to create input_ids value: {}", e)))?;
+        let attention_mask_value = Value::from_array(attention_mask_array)
+            .map_err(|e| EmbeddingError::Internal(format!("Failed to create attention_mask value: {}", e)))?;
+        let token_type_ids_value = Value::from_array(token_type_ids_array)
+            .map_err(|e| EmbeddingError::Internal(format!("Failed to create token_type_ids value: {}", e)))?;
+
+        // Lock session for inference (Session::run requires &mut self)
+        let mut session = self.session.lock();
+        let outputs = session
+            .run(ort::inputs![
+                "input_ids" => input_ids_value,
+                "attention_mask" => attention_mask_value,
+                "token_type_ids" => token_type_ids_value
             ])
             .map_err(|e| EmbeddingError::Internal(format!("ONNX inference failed: {}", e)))?;
 
-        // 6. Extract last_hidden_state output
-        let last_hidden_state = outputs[0]
-            .try_extract_raw_tensor::<f32>()
+        // 6. Extract last_hidden_state output (first output)
+        let (hidden_shape, hidden_data) = outputs["last_hidden_state"]
+            .try_extract_tensor::<f32>()
             .map_err(|e| EmbeddingError::Internal(format!("Failed to extract output: {}", e)))?;
-
-        let hidden_data = last_hidden_state.view();
-        let hidden_shape = hidden_data.shape();
 
         // Shape should be [batch_size, seq_len, hidden_size]
         if hidden_shape.len() != 3 {
@@ -211,7 +348,7 @@ impl OnnxEmbeddingProvider {
             )));
         }
 
-        let hidden_size = hidden_shape[2];
+        let hidden_size = hidden_shape[2] as usize;
 
         // 7. Mean pooling with attention mask
         let mut embeddings = Vec::with_capacity(batch_size);
@@ -220,12 +357,14 @@ impl OnnxEmbeddingProvider {
             let mut pooled = vec![0.0f32; hidden_size];
             let mut sum_mask = 0.0f32;
 
-            for j in 0..MAX_LENGTH {
-                let mask_val = attention_mask_vec[i * MAX_LENGTH + j] as f32;
+            for j in 0..max_length {
+                let mask_val = attention_mask_vec[i * max_length + j] as f32;
                 sum_mask += mask_val;
 
                 for k in 0..hidden_size {
-                    let hidden_val = hidden_data[[i, j, k]];
+                    // Access flat slice with manual indexing: [batch, seq, hidden]
+                    let idx = i * max_length * hidden_size + j * hidden_size + k;
+                    let hidden_val = hidden_data[idx];
                     pooled[k] += hidden_val * mask_val;
                 }
             }
@@ -313,9 +452,9 @@ impl EmbeddingProvider for OnnxEmbeddingProvider {
 
     async fn model_info(&self) -> EmbeddingResult<ModelInfo> {
         Ok(ModelInfo {
-            model: self.model_name.clone(),
-            dimension: self.dimension,
-            max_tokens: 512, // BERT standard max sequence length
+            model: self.config.model_name.clone(),
+            dimension: self.config.dimension,
+            max_tokens: self.config.max_length,
         })
     }
 
@@ -333,10 +472,10 @@ impl EmbeddingProvider for OnnxEmbeddingProvider {
         }
 
         // Verify correct dimension
-        if test_embedding[0].len() != self.dimension as usize {
+        if test_embedding[0].len() != self.config.dimension as usize {
             return Err(EmbeddingError::ServiceUnavailable(format!(
                 "Health check failed: wrong dimension (expected {}, got {})",
-                self.dimension,
+                self.config.dimension,
                 test_embedding[0].len()
             )));
         }

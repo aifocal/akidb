@@ -120,8 +120,11 @@ impl ErrorRateTracker {
         self.window.push((now, success));
 
         // Remove old results outside window
-        let cutoff = now - self.window_duration;
-        self.window.retain(|(timestamp, _)| *timestamp >= cutoff);
+        // Use checked_sub to prevent panic if window_duration > now (shouldn't happen in practice)
+        if let Some(cutoff) = now.checked_sub(self.window_duration) {
+            self.window.retain(|(timestamp, _)| *timestamp >= cutoff);
+        }
+        // If subtraction would overflow, keep all entries (extremely rare edge case)
     }
 
     /// Calculate current error rate (0.0-1.0).

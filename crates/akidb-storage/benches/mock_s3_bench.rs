@@ -2,7 +2,7 @@
 //!
 //! Validates that MockS3 is 100x+ faster than real S3 (zero network I/O)
 
-use akidb_storage::object_store::{LocalObjectStore, MockS3ObjectStore, ObjectStore};
+use akidb_storage::object_store::{LocalObjectStore, MockS3Config, MockS3ObjectStore, ObjectStore};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::path::PathBuf;
@@ -30,9 +30,11 @@ fn bench_mock_s3_vs_local(c: &mut Criterion) {
 
     // MockS3 (10ms latency simulation)
     group.bench_function("mock_s3_10ms_latency", |b| {
-        let mock = Arc::new(MockS3ObjectStore::new_with_latency(Duration::from_millis(
-            10,
-        )));
+        let config = MockS3Config {
+            latency: Duration::from_millis(10),
+            track_history: false,
+        };
+        let mock = Arc::new(MockS3ObjectStore::new_with_config(config));
 
         b.to_async(&rt).iter(|| async {
             for i in 0..100 {
@@ -47,7 +49,7 @@ fn bench_mock_s3_vs_local(c: &mut Criterion) {
     group.bench_function("local_store_filesystem", |b| {
         b.to_async(&rt).iter(|| async {
             let temp_dir = tempfile::tempdir().unwrap();
-            let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())));
+            let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())).await.unwrap());
 
             for i in 0..100 {
                 let key = format!("key{}", i);

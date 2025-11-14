@@ -24,44 +24,29 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Python integration (optional, gated behind "mlx" feature)
-# Bug Fix #5: Made Python dependency optional to improve portability
-# This allows the crate to build on machines without Python 3.10+
-# Use looser ABI (abi3-py38) for better compatibility
-pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py38"], optional = true }
+# Python 3.12 required for AkiDB 2.0
+# This allows the crate to build on machines without Python 3.12+
+# Using abi3-py312 for Python 3.12 stable ABI
+pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py312"], optional = true }
 
-# Candle ML framework (optional, gated behind "candle" feature)
-candle-core = { version = "0.8.0", optional = true, features = ["metal"] }
-candle-nn = { version = "0.8.0", optional = true }
-candle-transformers = { version = "0.8.0", optional = true }
+# ONNX Runtime with CoreML EP (primary provider for Mac ARM GPU)
+# TensorRT and CUDA features added for Jetson Thor support
+ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries", "cuda", "tensorrt"] }
+ndarray = { version = "0.16", optional = true }
 tokenizers = { version = "0.15.0", optional = true }
 hf-hub = { version = "0.3.2", optional = true, default-features = false, features = ["tokio", "online"] }
-
-# ONNX Runtime (optional, gated behind "onnx" feature)
-ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }
-ndarray = { version = "0.15", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 
 [features]
-default = ["mlx"]  # MLX enabled by default
-mlx = ["pyo3"]      # MLX embedding provider requires Python/PyO3
-candle = [          # Candle embedding provider (pure Rust)
-    "candle-core",
-    "candle-nn",
-    "candle-transformers",
-    "tokenizers",
-    "hf-hub"
-]
-onnx = [            # ONNX Runtime provider (universal GPU support)
+default = ["python-bridge"]  # Python bridge with ONNX+CoreML (most reliable)
+mlx = ["pyo3"]               # MLX embedding provider (fallback, requires Python/PyO3)
+onnx = [                     # Pure Rust ONNX Runtime (CPU-only unless custom build)
     "ort",
     "ndarray",
     "tokenizers",
     "hf-hub"
 ]
-
-[[bench]]
-name = "candle_bench"
-harness = false
-required-features = ["candle"]
+python-bridge = []           # Python subprocess bridge with ONNX+CoreML EP (recommended)

@@ -2,7 +2,7 @@
 //!
 //! Target: >500 ops/sec (2.5x improvement over sequential baseline)
 
-use akidb_core::ids::CollectionId;
+use akidb_core::ids::{CollectionId, DocumentId};
 use akidb_core::vector::VectorDocument;
 use akidb_storage::batch_config::S3BatchConfig;
 use akidb_storage::batch_uploader::BatchUploader;
@@ -26,7 +26,7 @@ fn bench_batch_vs_sequential(c: &mut Criterion) {
             |b, &count| {
                 b.to_async(&rt).iter(|| async {
                     let temp_dir = tempfile::tempdir().unwrap();
-                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())));
+                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())).await.unwrap());
                     let collection_id = CollectionId::new();
 
                     for i in 0..count {
@@ -45,19 +45,19 @@ fn bench_batch_vs_sequential(c: &mut Criterion) {
             |b, &count| {
                 b.to_async(&rt).iter(|| async {
                     let temp_dir = tempfile::tempdir().unwrap();
-                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())));
+                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())).await.unwrap());
 
                     let config = S3BatchConfig {
-                        enabled: true,
                         batch_size: 10,
                         max_wait_ms: 5000,
+                        enable_compression: true,
                     };
 
                     let uploader = BatchUploader::new(store, config).unwrap();
                     let collection_id = CollectionId::new();
 
                     for i in 0..count {
-                        let doc = VectorDocument::new(vec![0.1; 128]);
+                        let doc = VectorDocument::new(DocumentId::new(), vec![0.1; 128]);
                         uploader
                             .add_document(collection_id, 128, doc)
                             .await
@@ -65,7 +65,7 @@ fn bench_batch_vs_sequential(c: &mut Criterion) {
                     }
 
                     // Flush remaining
-                    uploader.flush_collection(collection_id).await.unwrap();
+                    uploader.flush_all().await.unwrap();
                 });
             },
         );
@@ -87,26 +87,26 @@ fn bench_batch_sizes(c: &mut Criterion) {
             |b, &size| {
                 b.to_async(&rt).iter(|| async {
                     let temp_dir = tempfile::tempdir().unwrap();
-                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())));
+                    let store = Arc::new(LocalObjectStore::new(PathBuf::from(temp_dir.path())).await.unwrap());
 
                     let config = S3BatchConfig {
-                        enabled: true,
                         batch_size: size,
                         max_wait_ms: 5000,
+                        enable_compression: true,
                     };
 
                     let uploader = BatchUploader::new(store, config).unwrap();
                     let collection_id = CollectionId::new();
 
                     for _ in 0..100 {
-                        let doc = VectorDocument::new(vec![0.1; 128]);
+                        let doc = VectorDocument::new(DocumentId::new(), vec![0.1; 128]);
                         uploader
                             .add_document(collection_id, 128, doc)
                             .await
                             .unwrap();
                     }
 
-                    uploader.flush_collection(collection_id).await.unwrap();
+                    uploader.flush_all().await.unwrap();
                 });
             },
         );

@@ -1,4 +1,5 @@
 # Python dependencies for AkiDB MLX Embedding Service
+# REQUIRES: Python 3.12
 
 # Core dependencies (Day 1)
 numpy>=1.24.0

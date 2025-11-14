@@ -14,10 +14,8 @@ pub mod profiles;
 pub mod client;
 
 pub use orchestrator::{LoadTestOrchestrator, ScenarioConfig};
-pub use metrics::{MetricsCollector, LoadTestMetrics};
-pub use reporter::{ResultWriter, ReportFormat};
+pub use reporter::ReportFormat;
 pub use profiles::{LoadProfile, WorkloadMix};
-pub use client::{LoadTestClient, OperationType};
 
 /// Success criteria for load test scenarios
 #[derive(Debug, Clone)]

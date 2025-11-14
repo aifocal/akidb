@@ -157,7 +157,7 @@ async fn test_network_partition_simulation() {
     // Action: Attempt uploads during "network partition"
     for _ in 0..10 {
         let doc = VectorDocument::new(DocumentId::new(), vec![0.1; 128]);
-        let result = uploader.add_document(collection_id, 128, doc).await;
+        let _result = uploader.add_document(collection_id, 128, doc).await;
 
         // All operations should fail gracefully - but add_document itself doesn't fail, it buffers
         // The failure happens during flush
@@ -173,10 +173,38 @@ async fn test_network_partition_simulation() {
 }
 
 #[tokio::test]
-#[ignore] // MockS3ObjectStore doesn't have new_with_latency method
 async fn test_latency_spike_handling() {
-    // Note: This test is disabled because MockS3ObjectStore doesn't support latency simulation
-    // To re-enable, implement new_with_latency() method in MockS3ObjectStore
+    use akidb_storage::object_store::MockS3Config;
+    use std::time::Instant;
+
+    // Setup: MockS3 with high latency (50ms simulated network delay)
+    let config = MockS3Config {
+        latency: Duration::from_millis(50),
+        track_history: true,
+    };
+    let store = Arc::new(MockS3ObjectStore::new_with_config(config));
+
+    let collection_id = CollectionId::new();
+
+    // Action: Upload 5 documents and measure total time
+    let start = Instant::now();
+    for i in 0..5 {
+        let key = format!("{}/snap{}.parquet", collection_id, i);
+        let data = vec![0u8; 1024];
+        store.put(&key, data.into()).await.unwrap();
+    }
+    let elapsed = start.elapsed();
+
+    // Verification: Total time should reflect latency (5 uploads × 50ms ≈ 250ms minimum)
+    assert!(
+        elapsed >= Duration::from_millis(250),
+        "Expected latency simulation to take at least 250ms, got {:?}",
+        elapsed
+    );
+
+    // Check all uploads succeeded despite high latency
+    let successful_puts = store.successful_puts();
+    assert_eq!(successful_puts, 5, "All 5 uploads should succeed");
 }
 
 #[tokio::test]

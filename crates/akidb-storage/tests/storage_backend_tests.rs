@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use tempfile::TempDir;
 
 #[tokio::test]
-async fn test_memoryS3_enqueues_upload() {
+async fn test_memory_s3_enqueues_upload() {
     let temp_dir = TempDir::new().unwrap();
     let wal_path = temp_dir.path().join("test.wal");
     let snapshot_dir = temp_dir.path().join("snapshots");
@@ -30,7 +30,7 @@ async fn test_memoryS3_enqueues_upload() {
 }
 
 #[tokio::test]
-async fn test_memoryS3_insert_non_blocking() {
+async fn test_memory_s3_insert_non_blocking() {
     let temp_dir = TempDir::new().unwrap();
     let wal_path = temp_dir.path().join("test.wal");
     let snapshot_dir = temp_dir.path().join("snapshots");
@@ -96,7 +96,7 @@ async fn test_graceful_shutdown() {
 }
 
 #[tokio::test]
-async fn test_graceful_shutdown_memoryS3() {
+async fn test_graceful_shutdown_memory_s3() {
     let temp_dir = TempDir::new().unwrap();
     let wal_path = temp_dir.path().join("test.wal");
     let snapshot_dir = temp_dir.path().join("snapshots");

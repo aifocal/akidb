@@ -58,20 +58,34 @@ RUN cargo build --release --workspace
 # ============================================================================
 # Stage 2: Runtime
 # ============================================================================
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
-# Install runtime dependencies
+# Install runtime dependencies including Python 3.12
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     sqlite3 \
     curl \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Create Python virtualenv for ONNX dependencies
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install ONNX dependencies in virtualenv
+RUN /opt/venv/bin/pip install --no-cache-dir \
+    onnxruntime==1.23.2 \
+    transformers==4.57.1 \
+    sentence-transformers==5.1.2 \
+    torch==2.9.0
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash akidb && \
-    mkdir -p /data /etc/akidb && \
-    chown -R akidb:akidb /data /etc/akidb
+    mkdir -p /data /etc/akidb /app/python && \
+    chown -R akidb:akidb /data /etc/akidb /app
 
 # Set working directory
 WORKDIR /app
@@ -80,11 +94,18 @@ WORKDIR /app
 COPY --from=builder /build/target/release/akidb-rest /app/
 COPY --from=builder /build/target/release/akidb-grpc /app/
 
+# Copy Python server script for python-bridge provider
+COPY --from=builder /build/crates/akidb-embedding/python/onnx_server.py /app/python/
+
 # Copy example configuration
 COPY config.example.toml /etc/akidb/config.toml
 
 # Set ownership
-RUN chown -R akidb:akidb /app /etc/akidb
+RUN chown -R akidb:akidb /app /etc/akidb && \
+    chown -R akidb:akidb /opt/venv
+
+# Set default Python path for python-bridge provider
+ENV AKIDB_EMBEDDING_PYTHON_PATH=/opt/venv/bin/python3.12
 
 # Switch to non-root user
 USER akidb
