@@ -1,4 +1,4 @@
-# AkiDB 2.0 REST API Tutorial
+# AkiDB REST API Tutorial
 
 A comprehensive guide to using the AkiDB REST API for vector database operations.
 
@@ -1220,7 +1220,7 @@ class AkiDBClient {
 
 ## Working with S3 Storage
 
-AkiDB 2.0 supports tiered storage with S3/MinIO for production deployments. This section demonstrates how to configure and monitor S3 backend integration.
+AkiDB supports tiered storage with S3/MinIO for production deployments. This section demonstrates how to configure and monitor S3 backend integration.
 
 ### Configure S3 Backend
 

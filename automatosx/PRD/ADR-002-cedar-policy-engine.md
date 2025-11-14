@@ -9,7 +9,7 @@
 
 ## Context
 
-AkiDB 2.0 introduces **fine-grained, policy-driven RBAC** to support enterprise customers with complex authorization requirements:
+AkiDB introduces **fine-grained, policy-driven RBAC** to support enterprise customers with complex authorization requirements:
 
 - Multi-tenant isolation (tenant A users cannot access tenant B resources)
 - Role-based permissions (admin, developer, viewer, auditor)
@@ -45,7 +45,7 @@ We need a **policy engine** that:
 
 ## Decision
 
-We will adopt **AWS Cedar** as the policy engine for AkiDB 2.0 RBAC, with **OPA (Open Policy Agent)** as a fallback if Cedar performance issues arise.
+We will adopt **AWS Cedar** as the policy engine for AkiDB RBAC, with **OPA (Open Policy Agent)** as a fallback if Cedar performance issues arise.
 
 **Implementation Approach:**
 
@@ -487,7 +487,7 @@ allow {
 - [Cedar Formal Verification Paper](https://www.amazon.science/publications/cedar-a-new-language-for-expressive-fast-safe-and-analyzable-authorization)
 - [Week 0 Cedar Sandbox Setup](../tmp/week0-cedar-sandbox-setup.md)
 - [Open Policy Agent (OPA)](https://www.openpolicyagent.org/)
-- [AkiDB 2.0 Technical Architecture](./akidb-2.0-technical-architecture.md)
+- [AkiDB Technical Architecture](./akidb-2.0-technical-architecture.md)
 
 ---
 

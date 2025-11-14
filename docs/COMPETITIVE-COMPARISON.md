@@ -1,10 +1,10 @@
-# AkiDB 2.0 vs Competitors
+# AkiDB vs Competitors
 
-Comprehensive comparison of AkiDB 2.0 against leading vector databases.
+Comprehensive comparison of AkiDB against leading vector databases.
 
 ## Quick Comparison Matrix
 
-| Feature | AkiDB 2.0 | Milvus | Pinecone | Weaviate | ChromaDB | Qdrant |
+| Feature | AkiDB | Milvus | Pinecone | Weaviate | ChromaDB | Qdrant |
 |---------|-----------|--------|----------|----------|----------|---------|
 | **Performance (P95)** | **4.5ms** ✅ | 15ms | 20-30ms | 20-50ms | 25ms | 10-15ms |
 | **ARM Optimization** | **Yes** ✅ | Limited | No | No | No | Limited |
@@ -20,7 +20,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ## Detailed Comparisons
 
-### AkiDB 2.0 vs Milvus
+### AkiDB vs Milvus
 
 #### Performance
 - **AkiDB**: 4.5ms P95 @ 100 QPS (ARM-optimized ONNX Runtime + CoreML)
@@ -51,7 +51,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ---
 
-### AkiDB 2.0 vs Pinecone
+### AkiDB vs Pinecone
 
 #### Pricing
 - **AkiDB Startup**: $499/mo (10M vectors, 1,000 QPS)
@@ -87,7 +87,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ---
 
-### AkiDB 2.0 vs Weaviate
+### AkiDB vs Weaviate
 
 #### Latency
 - **AkiDB**: 4.5ms P95 (RAM-first ARM optimization)
@@ -123,7 +123,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ---
 
-### AkiDB 2.0 vs ChromaDB
+### AkiDB vs ChromaDB
 
 #### Production Readiness
 - **AkiDB**: Production-grade (99.99% SLA, SOC 2, multi-region)
@@ -154,7 +154,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ---
 
-### AkiDB 2.0 vs Qdrant
+### AkiDB vs Qdrant
 
 #### Pricing
 - **AkiDB**: $499/mo (10M vectors, 1,000 QPS)
@@ -268,7 +268,7 @@ Comprehensive comparison of AkiDB 2.0 against leading vector databases.
 
 ---
 
-## When to Choose AkiDB 2.0
+## When to Choose AkiDB
 
 ### Best For
 ✅ ARM edge devices (Apple Silicon, Graviton, Jetson)

@@ -1,4 +1,4 @@
-# AkiDB 2.0 Deployment Guide
+# AkiDB Deployment Guide
 
 Complete guide for deploying AkiDB in production environments using Docker, Kubernetes, or bare metal.
 
@@ -1023,7 +1023,7 @@ format = "json"          # json (production) or pretty (development)
 
 ## S3/MinIO Storage Configuration
 
-AkiDB 2.0 supports three tiering policies for vector storage with different performance/cost trade-offs:
+AkiDB supports three tiering policies for vector storage with different performance/cost trade-offs:
 
 ### Tiering Policies Overview
 

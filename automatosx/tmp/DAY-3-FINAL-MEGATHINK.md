@@ -572,7 +572,7 @@ ENV ORT_DYLIB_PATH=/usr/local/lib/libonnxruntime.dylib
 - Competitive performance (<20ms)
 - Production-ready solution
 - Leverages Apple Silicon hardware
-- Foundation for AkiDB 2.0 embedding pipeline
+- Foundation for AkiDB embedding pipeline
 
 ---
 

@@ -1,6 +1,6 @@
 # Python 3.12 and OS Requirements Update Report
 ## Date: November 13, 2025
-## Project: AkiDB 2.0
+## Project: AkiDB
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Status**: ✅ **COMPLETE**
 
-Successfully updated AkiDB 2.0 to:
+Successfully updated AkiDB to:
 1. Use Python 3.12 throughout the codebase
 2. Specify OS requirements (macOS 26+, Ubuntu 24.04 LTS)
 3. Create Python 3.12 virtual environment with all dependencies
@@ -62,7 +62,7 @@ All packages are latest stable versions compatible with Python 3.12.
 -# This allows the crate to build on machines without Python 3.10+
 -# Use looser ABI (abi3-py38) for better compatibility
 -pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py38"], optional = true }
-+# Python 3.12 required for AkiDB 2.0
++# Python 3.12 required for AkiDB
 +# This allows the crate to build on machines without Python 3.12+
 +# Using abi3-py312 for Python 3.12 stable ABI
 +pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py312"], optional = true }
@@ -417,7 +417,7 @@ sudo make altinstall
 
 ## Conclusion
 
-AkiDB 2.0 now officially requires:
+AkiDB now officially requires:
 - **Python 3.12** (3.12.12 tested)
 - **macOS 26+** (26.1 tested)
 - **Ubuntu 24.04 LTS** (or equivalent)

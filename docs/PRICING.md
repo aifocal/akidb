@@ -1,4 +1,4 @@
-# AkiDB 2.0 Pricing
+# AkiDB Pricing
 
 Simple, transparent pricing for every stage of your journey.
 

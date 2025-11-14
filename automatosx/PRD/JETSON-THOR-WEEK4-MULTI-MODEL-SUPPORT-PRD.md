@@ -1421,7 +1421,7 @@ Week 4 implemented multi-model support with model registry, LRU caching, and run
 ---
 
 **Report Prepared By:** Backend Team
-**Project:** AkiDB 2.0 - Jetson Thor Multi-Model Support
+**Project:** AkiDB - Jetson Thor Multi-Model Support
 REPORT
 ```
 

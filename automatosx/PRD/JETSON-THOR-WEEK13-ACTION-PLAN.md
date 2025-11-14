@@ -1,6 +1,6 @@
 # Week 13 Action Plan: Edge Deployment & Global CDN Distribution
 
-**Project:** AkiDB 2.0 Jetson Thor Optimization Journey
+**Project:** AkiDB Jetson Thor Optimization Journey
 **Week:** 13 of 52-week roadmap
 **Duration:** 5 days (November 12-16, 2025)
 **Focus:** Edge Deployment with CloudFront CDN, Lambda@Edge, Jetson Orin Nano, and WebAssembly Inference

@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Week 18 Day 2 successfully completed all **Content Blitz** deliverables for AkiDB 2.0's production launch. We created comprehensive launch content including technical blog post, Hacker News strategy, email campaigns, and social media content ready for multi-channel distribution.
+Week 18 Day 2 successfully completed all **Content Blitz** deliverables for AkiDB's production launch. We created comprehensive launch content including technical blog post, Hacker News strategy, email campaigns, and social media content ready for multi-channel distribution.
 
 **Key Achievement:** Complete go-to-market content suite ready to drive 1,000+ website visitors and 50+ signups on launch day.
 
@@ -92,7 +92,7 @@ Week 18 Day 2 successfully completed all **Content Blitz** deliverables for AkiD
 
 **Recommended Title:**
 ```
-Show HN: AkiDB 2.0 – Vector database with 99.99% SLA and 4.5ms P95 latency
+Show HN: AkiDB – Vector database with 99.99% SLA and 4.5ms P95 latency
 ```
 
 **Key Strategies:**
@@ -138,7 +138,7 @@ Show HN: AkiDB 2.0 – Vector database with 99.99% SLA and 4.5ms P95 latency
 - Soft CTA (catch up + feedback)
 
 **Template 3 (Past Inquiries):**
-- Subject: "We shipped the features you requested (AkiDB 2.0 launching today)"
+- Subject: "We shipped the features you requested (AkiDB launching today)"
 - Acknowledge their previous feedback
 - Show what's changed since v1.0
 - VIP offer (50% off 6 months for v1.0 users)

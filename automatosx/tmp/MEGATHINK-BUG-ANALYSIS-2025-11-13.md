@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Comprehensive MEGATHINK Bug Analysis
+# AkiDB - Comprehensive MEGATHINK Bug Analysis
 ## Date: November 13, 2025
 ## Branch: feature/candle-phase1-foundation
 

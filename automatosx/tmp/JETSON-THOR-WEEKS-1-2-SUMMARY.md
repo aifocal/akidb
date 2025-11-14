@@ -1,6 +1,6 @@
 # Jetson Thor Project: Weeks 1-2 Summary
 
-**Project:** AkiDB 2.0 - NVIDIA Jetson Thor with ONNX Runtime + Qwen3 4B FP8
+**Project:** AkiDB - NVIDIA Jetson Thor with ONNX Runtime + Qwen3 4B FP8
 **Status:** Week 1 ✅ Complete, Week 2 Ready to Execute
 
 ---

@@ -514,7 +514,7 @@ curl http://localhost:8080/metrics | grep embedding_latency
 - Performance degrades below 20ms in production (unlikely)
 - Need to eliminate Python dependency for strategic reasons
 
-**Current Assessment**: Path B is the production solution for AkiDB 2.0
+**Current Assessment**: Path B is the production solution for AkiDB
 
 ---
 

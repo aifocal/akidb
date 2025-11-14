@@ -328,7 +328,7 @@ Week 8 advances from Week 7's **active-passive multi-region** to **active-active
 
 ### CAP Theorem Trade-Offs
 
-AkiDB 2.0 is designed for **availability and partition tolerance (AP)**, accepting **eventual consistency**:
+AkiDB is designed for **availability and partition tolerance (AP)**, accepting **eventual consistency**:
 
 - **Consistency (C):** Strong consistency requires distributed locks/consensus → HIGH LATENCY
 - **Availability (A):** System remains operational during network partitions → REQUIRED
@@ -2113,7 +2113,7 @@ spec:
 | **Multi-Master** | Eventual + Conflict | Medium | High | Distributed writes |
 | **Leader-Follower** | Strong | Medium | Medium | Primary region writes |
 
-**AkiDB 2.0 Choice:** Asynchronous (eventual consistency) for model files, synchronous (Git) for configuration.
+**AkiDB Choice:** Asynchronous (eventual consistency) for model files, synchronous (Git) for configuration.
 
 ### S3 Replication Monitoring
 

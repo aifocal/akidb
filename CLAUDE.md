@@ -33,7 +33,7 @@ cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings
 
 ## Project Overview
 
-AkiDB 2.0 is a RAM-first vector database optimized for ARM edge devices (Mac ARM, NVIDIA Jetson, Oracle ARM Cloud) with built-in embedding services, S3/MinIO tiered storage, and enterprise-grade multi-tenancy with RBAC.
+AkiDB is a RAM-first vector database optimized for ARM edge devices (Mac ARM, NVIDIA Jetson, Oracle ARM Cloud) with built-in embedding services, S3/MinIO tiered storage, and enterprise-grade multi-tenancy with RBAC.
 
 **Target Constraints:**
 - Storage: ≤100GB in-memory datasets

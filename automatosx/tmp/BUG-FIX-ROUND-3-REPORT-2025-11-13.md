@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Bug Fix Report (Round 3)
+# AkiDB - Bug Fix Report (Round 3)
 ## Date: November 13, 2025
 ## Branch: feature/candle-phase1-foundation
 

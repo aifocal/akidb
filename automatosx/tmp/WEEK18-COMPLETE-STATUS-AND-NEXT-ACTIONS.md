@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Week 18 represents the culmination of 18 weeks of development work on AkiDB 2.0. The technical infrastructure is **100% complete** with world-class performance (4.5ms P95 latency), reliability (99.99% SLA), and security (SOC 2 96% complete).
+Week 18 represents the culmination of 18 weeks of development work on AkiDB. The technical infrastructure is **100% complete** with world-class performance (4.5ms P95 latency), reliability (99.99% SLA), and security (SOC 2 96% complete).
 
 **Current State:**
 - ✅ **Days 1-2 Complete**: All documentation, content, and marketing materials created (11 files, ~60,000 words)
@@ -106,7 +106,7 @@ Week 18 represents the culmination of 18 weeks of development work on AkiDB 2.0.
 
 6. **Reddit AMAs (1 hour)**
    - Pre-written posts for r/MachineLearning, r/kubernetes, r/rust
-   - Template: "I built AkiDB 2.0 [tech details]. AMA!"
+   - Template: "I built AkiDB [tech details]. AMA!"
    - Engagement strategy: respond within 30 minutes for first 2 hours
 
 7. **E2E Testing (30 minutes)**
@@ -139,14 +139,14 @@ Week 18 represents the culmination of 18 weeks of development work on AkiDB 2.0.
 
 1. **Product Hunt Submission (6:00 AM PT, 30 minutes)**
    - Complete submission template provided
-   - Title: "AkiDB 2.0 - Vector database with 99.99% SLA and 4.5ms latency"
+   - Title: "AkiDB - Vector database with 99.99% SLA and 4.5ms latency"
    - Tagline: "Production-ready vector search for AI applications (50% cheaper, 3x faster)"
    - First comment template prepared
    - 5 screenshots ready (architecture diagram, dashboard, API docs, benchmarks, pricing)
 
 2. **Email Blast (6:30 AM PT, 1 hour)**
    - Template for 500 email subscribers provided
-   - Subject: "We're launching on Product Hunt TODAY - vote for AkiDB 2.0!"
+   - Subject: "We're launching on Product Hunt TODAY - vote for AkiDB!"
    - Personalized ask for upvotes and feedback
    - Track clicks with UTM: `?utm_source=email&utm_campaign=ph-launch`
 
@@ -212,7 +212,7 @@ Week 18 represents the culmination of 18 weeks of development work on AkiDB 2.0.
 
 1. **Press Release Distribution (2 hours)**
    - Complete press release template provided (800 words)
-   - Headline: "AkiDB 2.0 Launches with Industry-Leading 99.99% Uptime SLA for Vector Databases"
+   - Headline: "AkiDB Launches with Industry-Leading 99.99% Uptime SLA for Vector Databases"
    - Distribution channels:
      - PR Newswire ($500-1,000)
      - TechCrunch tips@techcrunch.com

@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Temporary Documentation
+# AkiDB - Temporary Documentation
 
 This directory contains temporary working documents, analysis reports, and session notes.
 

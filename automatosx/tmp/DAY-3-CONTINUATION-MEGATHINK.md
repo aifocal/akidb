@@ -736,7 +736,7 @@ cargo run --example test_python_bridge --release
 - Production-ready embedding service
 - Competitive performance (<20ms)
 - Leverages Apple Silicon GPU/ANE
-- Foundation for entire AkiDB 2.0 embedding pipeline
+- Foundation for entire AkiDB embedding pipeline
 
 **Next Action**: Begin Path A execution (Hour 1: Environment Setup)
 

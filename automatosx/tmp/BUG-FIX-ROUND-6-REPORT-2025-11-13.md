@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Bug Fix Report (Round 6 - Critical Panic Prevention)
+# AkiDB - Bug Fix Report (Round 6 - Critical Panic Prevention)
 ## Date: November 13, 2025
 ## Branch: feature/candle-phase1-foundation
 

@@ -8,7 +8,7 @@
 
 ## Overview
 
-This guide covers deploying AkiDB 2.0 with Python bridge ONNX Runtime + CoreML Execution Provider for accelerated embedding inference on Apple Silicon.
+This guide covers deploying AkiDB with Python bridge ONNX Runtime + CoreML Execution Provider for accelerated embedding inference on Apple Silicon.
 
 ### Why Path B (Python Bridge)?
 

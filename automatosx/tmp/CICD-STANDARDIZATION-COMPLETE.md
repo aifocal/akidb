@@ -1,6 +1,6 @@
 # CI/CD Standardization Complete Report
 ## Date: November 13, 2025
-## Project: AkiDB 2.0
+## Project: AkiDB
 
 ---
 

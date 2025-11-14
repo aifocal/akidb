@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Documentation Cleanup Summary
+# AkiDB - Documentation Cleanup Summary
 
 **Date:** 2025-11-10
 **Action:** Cleaned up outdated PRD and tmp files

@@ -1,4 +1,4 @@
-# AkiDB 2.0 Observability Runbook
+# AkiDB Observability Runbook
 
 **Version:** 1.0
 **Last Updated:** 2025-11-08
@@ -20,7 +20,7 @@
 
 ## Overview
 
-AkiDB 2.0 uses a comprehensive observability stack:
+AkiDB uses a comprehensive observability stack:
 
 - **Prometheus**: Metrics collection and alerting
 - **Grafana**: Visualization dashboards

@@ -9,7 +9,7 @@
 
 ## Context
 
-AkiDB 2.0 introduces a hierarchical tenant → database → collection structure that requires persistent metadata storage. The v1.x implementation used in-memory descriptors serialized to JSON snapshots, which has limitations:
+AkiDB introduces a hierarchical tenant → database → collection structure that requires persistent metadata storage. The v1.x implementation used in-memory descriptors serialized to JSON snapshots, which has limitations:
 
 - No transactional guarantees for metadata updates
 - Difficult to query metadata (e.g., "find all collections in database X")
@@ -26,7 +26,7 @@ We need a metadata store that:
 
 ## Decision
 
-We will use **SQLite 3.46+ with STRICT tables, FTS5 full-text search, and WAL mode** as the metadata storage layer for AkiDB 2.0.
+We will use **SQLite 3.46+ with STRICT tables, FTS5 full-text search, and WAL mode** as the metadata storage layer for AkiDB.
 
 **Implementation Details:**
 - **Schema:** STRICT tables for tenants, users, databases, collections, docs, snapshots, wal_segments (see `akidb-2.0-technical-architecture.md:17`)
@@ -303,7 +303,7 @@ Integrates seamlessly with existing S3/MinIO strategy.
 - [SQLite Documentation](https://www.sqlite.org/docs.html)
 - [SQLite WAL Mode](https://www.sqlite.org/wal.html)
 - [sqlx (Rust SQLite Driver)](https://github.com/launchbadge/sqlx)
-- [AkiDB 2.0 Technical Architecture](./akidb-2.0-technical-architecture.md)
+- [AkiDB Technical Architecture](./akidb-2.0-technical-architecture.md)
 - [Litestream (SQLite Replication)](https://litestream.io/)
 
 ---

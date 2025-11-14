@@ -1,6 +1,6 @@
 # Week 14 Action Plan: Cost Optimization & Intelligent Autoscaling
 
-**Project:** AkiDB 2.0 Jetson Thor Optimization Journey
+**Project:** AkiDB Jetson Thor Optimization Journey
 **Week:** 14 of 52-week roadmap
 **Duration:** 5 days (November 19-23, 2025)
 **Focus:** Cost Reduction from $3,470 → $2,970/month (-$500, -14%)

@@ -1,4 +1,4 @@
-# AkiDB 2.0
+# AkiDB
 
 ![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)
 ![Python](https://img.shields.io/badge/python-3.12-blue)

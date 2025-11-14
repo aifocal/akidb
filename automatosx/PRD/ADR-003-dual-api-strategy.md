@@ -50,7 +50,7 @@ We need an API strategy that:
 
 ## Decision
 
-We will implement a **dual API layer** in AkiDB 2.0:
+We will implement a **dual API layer** in AkiDB:
 - **gRPC (Tonic)** for data plane operations (high-frequency, performance-critical)
 - **REST (Axum)** for control plane operations (management, admin, backward compatibility)
 

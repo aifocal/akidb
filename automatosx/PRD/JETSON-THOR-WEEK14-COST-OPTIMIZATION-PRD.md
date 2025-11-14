@@ -1,6 +1,6 @@
 # Week 14 PRD: Cost Optimization & Intelligent Autoscaling
 
-**Project:** AkiDB 2.0 Jetson Thor Optimization Journey
+**Project:** AkiDB Jetson Thor Optimization Journey
 **Week:** 14 of 52-week roadmap
 **Focus:** Cost Optimization, Intelligent Autoscaling, Spot Instance Integration, Resource Right-Sizing
 **Duration:** 5 days (November 19-23, 2025)

@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: AkiDB 2.0 REST API
+  title: AkiDB REST API
   description: |
-    AkiDB 2.0 is a RAM-first vector database optimized for ARM edge devices with built-in
+    AkiDB is a RAM-first vector database optimized for ARM edge devices with built-in
     embedding services, S3/MinIO tiered storage, and enterprise-grade multi-tenancy with RBAC.
 
     ## 🚀 Key Features

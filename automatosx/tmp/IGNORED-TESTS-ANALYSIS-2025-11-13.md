@@ -1,4 +1,4 @@
-# Ignored Tests Analysis - AkiDB 2.0
+# Ignored Tests Analysis - AkiDB
 **Date:** November 13, 2025
 **Session:** Megathink Bug Analysis - Ignored Tests Investigation
 **Branch:** feature/candle-phase1-foundation
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Comprehensive analysis of all ignored tests in AkiDB 2.0 reveals **NO CRITICAL BUGS** hidden in ignored tests. All ignored tests fall into **5 legitimate categories**:
+Comprehensive analysis of all ignored tests in AkiDB reveals **NO CRITICAL BUGS** hidden in ignored tests. All ignored tests fall into **5 legitimate categories**:
 
 1. **Heavy/Slow Tests** (30+ tests) - Long-running stress/load tests
 2. **Flaky Tests** (2 tests) - Timing-dependent E2E tests

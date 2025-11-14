@@ -1078,11 +1078,11 @@ EOF
 **r/MachineLearning Post:**
 
 ```markdown
-Title: [D] AkiDB 2.0: We built a production-ready vector DB with 99.99% SLA (open-source, ARM-optimized)
+Title: [D] AkiDB: We built a production-ready vector DB with 99.99% SLA (open-source, ARM-optimized)
 
 Body:
 
-Hey r/MachineLearning! We launched AkiDB 2.0 this week and got great feedback on HN (hit #3 with 500+ upvotes).
+Hey r/MachineLearning! We launched AkiDB this week and got great feedback on HN (hit #3 with 500+ upvotes).
 
 **What we built:**
 • 4.5ms P95 search latency (ARM-optimized ONNX Runtime + CoreML)
@@ -1115,7 +1115,7 @@ Title: We built multi-region vector DB on EKS with 99.99% SLA - lessons learned
 
 Body:
 
-After 17 weeks of production hardening, we achieved 99.99% uptime for AkiDB 2.0 running on EKS.
+After 17 weeks of production hardening, we achieved 99.99% uptime for AkiDB running on EKS.
 
 **Architecture:**
 • 3 regions: US-East-1, US-West-2, EU-West-1
@@ -1394,12 +1394,12 @@ echo "🚀 Product Hunt launch in 60 minutes - all systems green"
 **Product Hunt Submission:**
 
 ```
-Title: AkiDB 2.0 - Vector database with 99.99% SLA and 4.5ms latency
+Title: AkiDB - Vector database with 99.99% SLA and 4.5ms latency
 
 Tagline: Production-ready vector search for AI applications (50% cheaper, 3x faster)
 
 Description:
-AkiDB 2.0 is a vector database optimized for ARM edge devices with enterprise-grade reliability.
+AkiDB is a vector database optimized for ARM edge devices with enterprise-grade reliability.
 
 🚀 Performance
 • 4.5ms P95 search latency (3-10x faster than competitors)
@@ -1489,13 +1489,13 @@ watch -n 900 'curl -s https://www.producthunt.com/posts/akidb-2 | grep rank'
 ```bash
 # Send email to 500 subscribers
 cat > email-blast.html << 'EOF'
-Subject: 🚀 AkiDB 2.0 is LIVE on Product Hunt - 50% off launch special!
+Subject: 🚀 AkiDB is LIVE on Product Hunt - 50% off launch special!
 
 Body:
 
 Hi there,
 
-We just launched AkiDB 2.0 on Product Hunt and would love your support!
+We just launched AkiDB on Product Hunt and would love your support!
 
 🎯 What's new:
 • 99.99% uptime SLA (10x better availability)
@@ -1521,7 +1521,7 @@ curl -s --user 'api:YOUR_MAILGUN_API_KEY' \
   https://api.mailgun.net/v3/YOUR_DOMAIN/messages \
   -F from='AkiDB Team <launch@akidb.com>' \
   -F to='subscribers@akidb.com' \
-  -F subject='🚀 AkiDB 2.0 is LIVE on Product Hunt' \
+  -F subject='🚀 AkiDB is LIVE on Product Hunt' \
   -F html="$(cat email-blast.html)"
 ```
 
@@ -1531,7 +1531,7 @@ curl -s --user 'api:YOUR_MAILGUN_API_KEY' \
 # Twitter update
 tweet "🎉 We're #3 on @ProductHunt right now!
 
-Thank you to everyone who upvoted AkiDB 2.0
+Thank you to everyone who upvoted AkiDB
 
 If you haven't checked it out yet:
 👉 https://www.producthunt.com/posts/akidb-2
@@ -1542,7 +1542,7 @@ If you haven't checked it out yet:
 # LinkedIn update
 linkedin_post "Humbled by the Product Hunt response! 🙏
 
-AkiDB 2.0 is currently #3 product of the day with 500+ upvotes.
+AkiDB is currently #3 product of the day with 500+ upvotes.
 
 Thank you to everyone who supported us!
 
@@ -1606,15 +1606,15 @@ watch -n 3600 './scripts/day4-metrics.sh'
 cat > press-release.md << 'EOF'
 FOR IMMEDIATE RELEASE
 
-AkiDB 2.0 Launches with Industry-Leading 99.99% Uptime SLA for Vector Databases
+AkiDB Launches with Industry-Leading 99.99% Uptime SLA for Vector Databases
 
 Production-Ready Platform Achieves 4.5ms Search Latency at 50% Lower Cost Than Competitors
 
-[CITY, STATE] - November 15, 2025 - AkiDB today announced the general availability of AkiDB 2.0, a production-ready vector database optimized for ARM edge devices with enterprise-grade reliability and performance.
+[CITY, STATE] - November 15, 2025 - AkiDB today announced the general availability of AkiDB, a production-ready vector database optimized for ARM edge devices with enterprise-grade reliability and performance.
 
 The platform achieves 99.99% uptime SLA (52.6 minutes of downtime per year) with 4.5ms P95 search latency - 3-10x faster than competing solutions - while maintaining 50% lower pricing than market leaders.
 
-"After shipping our initial release, we learned that fast vector search wasn't enough for production," said [Founder Name], CEO of AkiDB. "Customers needed guaranteed uptime, enterprise compliance, and predictable costs. AkiDB 2.0 delivers all three."
+"After shipping our initial release, we learned that fast vector search wasn't enough for production," said [Founder Name], CEO of AkiDB. "Customers needed guaranteed uptime, enterprise compliance, and predictable costs. AkiDB delivers all three."
 
 Key Features:
 • 99.99% uptime SLA with multi-region active-active architecture
@@ -1625,7 +1625,7 @@ Key Features:
 
 The platform runs weekly chaos engineering tests to validate reliability claims, simulating AWS regional failures, data corruption, and network partitions. Over the past 8 weeks, AkiDB has achieved 100% pass rate with average recovery time of 9.4 minutes - 3x better than its 30-minute SLA commitment.
 
-"We built AkiDB 2.0 for ARM-first infrastructure," added [Founder Name]. "Apple Silicon, AWS Graviton, and NVIDIA Jetson customers see 60% better price/performance compared to x86 alternatives."
+"We built AkiDB for ARM-first infrastructure," added [Founder Name]. "Apple Silicon, AWS Graviton, and NVIDIA Jetson customers see 60% better price/performance compared to x86 alternatives."
 
 Availability:
 • Free tier: 1M vectors, 100 QPS (no credit card required)
@@ -1714,7 +1714,7 @@ EOF
 # Webinar outline:
 # 1. Introduction (5 min)
 #    - Team intro
-#    - AkiDB 2.0 overview
+#    - AkiDB overview
 #
 # 2. Technical Deep-Dive (20 min)
 #    - ARM optimization strategies

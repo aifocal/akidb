@@ -1,6 +1,6 @@
 # Week 15 PRD: Advanced Observability & Monitoring
 
-**Project:** AkiDB 2.0 Jetson Thor Optimization Journey
+**Project:** AkiDB Jetson Thor Optimization Journey
 **Week:** 15 of 52-week roadmap
 **Focus:** Distributed Tracing, Real-Time Edge Metrics, Anomaly Detection, MTTD <5 Minutes
 **Duration:** 5 days (November 26-30, 2025)

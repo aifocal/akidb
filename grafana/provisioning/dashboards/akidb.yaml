@@ -1,4 +1,4 @@
-# Grafana Dashboard Provisioning for AkiDB 2.0
+# Grafana Dashboard Provisioning for AkiDB
 # Auto-imports dashboard JSONs from /etc/grafana/provisioning/dashboards/
 # Compatible with Docker Compose deployment
 
@@ -8,7 +8,7 @@ providers:
   # AkiDB Dashboards
   - name: 'AkiDB Dashboards'
     orgId: 1
-    folder: 'AkiDB 2.0'
+    folder: 'AkiDB'
     type: file
     disableDeletion: false
     updateIntervalSeconds: 10

@@ -24,7 +24,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Python integration (optional, gated behind "mlx" feature)
-# Python 3.12 required for AkiDB 2.0
+# Python 3.12 required for AkiDB
 # This allows the crate to build on machines without Python 3.12+
 # Using abi3-py312 for Python 3.12 stable ABI
 pyo3 = { version = "0.22", features = ["auto-initialize", "abi3-py312"], optional = true }

@@ -650,7 +650,7 @@ Since I can't create actual images, I'm providing specifications. The team shoul
 ### 8:00 AM PT - LAUNCH! 🚀
 
 - [ ] **8:00:00 AM** - **SUBMIT TO HACKER NEWS**
-  - Title: "Show HN: AkiDB 2.0 – Vector database with 99.99% SLA and 4.5ms P95 latency"
+  - Title: "Show HN: AkiDB – Vector database with 99.99% SLA and 4.5ms P95 latency"
   - URL: https://akidb.com
   - Post first comment immediately (500-word intro)
 
@@ -709,7 +709,7 @@ Since I can't create actual images, I'm providing specifications. The team shoul
 ### 3:00 PM - 6:00 PM - Community Amplification
 
 - [ ] **3:00 PM** - Post to Reddit r/SideProject:
-  - Title: "Launched AkiDB 2.0 on HN today - production-ready vector DB"
+  - Title: "Launched AkiDB on HN today - production-ready vector DB"
   - Body: Brief intro, HN link, ask for feedback
 
 - [ ] **3:30 PM** - Ask team to share on personal LinkedIn (if they want)

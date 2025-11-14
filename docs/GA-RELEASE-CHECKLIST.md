@@ -1,4 +1,4 @@
-# AkiDB 2.0 GA Release Checklist
+# AkiDB GA Release Checklist
 
 **Version**: 2.0.0
 **Release Type**: General Availability (GA)
@@ -233,7 +233,7 @@ git diff
 
 # Commit version bump
 git add .
-git commit -m "Release: AkiDB 2.0.0 GA
+git commit -m "Release: AkiDB.0 GA
 
 - Bump version to 2.0.0
 - Update CHANGELOG
@@ -241,7 +241,7 @@ git commit -m "Release: AkiDB 2.0.0 GA
 "
 
 # Create annotated tag
-git tag -a v2.0.0 -m "AkiDB 2.0.0 General Availability
+git tag -a v2.0.0 -m "AkiDB.0 General Availability
 
 Production-ready release with:
 - S3/MinIO tiered storage
@@ -331,11 +331,11 @@ tar -tzf releases/akidb-2.0.0.tgz | head -20
 
 ```bash
 gh release create v2.0.0 \
-  --title "AkiDB 2.0.0 - General Availability" \
+  --title "AkiDB.0 - General Availability" \
   --notes-file <(cat <<EOF
-# AkiDB 2.0.0 - Production-Ready Vector Database for ARM Edge
+# AkiDB.0 - Production-Ready Vector Database for ARM Edge
 
-We're excited to announce the **General Availability** of AkiDB 2.0, a RAM-first vector database optimized for ARM edge devices.
+We're excited to announce the **General Availability** of AkiDB, a RAM-first vector database optimized for ARM edge devices.
 
 ## 🚀 What's New in 2.0
 
@@ -410,7 +410,7 @@ cargo build --release
 
 ## 🙏 Acknowledgments
 
-Thanks to all contributors and early adopters who helped shape AkiDB 2.0!
+Thanks to all contributors and early adopters who helped shape AkiDB!
 
 Full changelog: [CHANGELOG.md](./CHANGELOG.md)
 EOF
@@ -470,7 +470,7 @@ open https://yourusername.github.io/akidb2/
 
 **Twitter/X:**
 ```
-🚀 AkiDB 2.0 is here!
+🚀 AkiDB is here!
 
 Production-ready vector database for ARM edge devices:
 ✅ S3/MinIO tiered storage
@@ -498,7 +498,7 @@ Production-ready vector database for ARM edge devices:
 
 **Hacker News:**
 - [ ] Submit to Show HN
-- Title: "AkiDB 2.0: RAM-First Vector Database for ARM Edge"
+- Title: "AkiDB: RAM-First Vector Database for ARM Edge"
 - URL: GitHub repository
 
 **Other:**
@@ -591,7 +591,7 @@ gh issue create --title "Hotfix: v2.0.1 released" --body "..."
 **Performance**: Meets all SLOs ✅
 **Security**: Audit complete ✅
 
-**AkiDB 2.0 is READY FOR GENERAL AVAILABILITY! 🎉**
+**AkiDB is READY FOR GENERAL AVAILABILITY! 🎉**
 
 ---
 

@@ -1,4 +1,4 @@
-# AkiDB 2.0 Performance Benchmarks
+# AkiDB Performance Benchmarks
 
 **Last Updated:** 2025-11-07
 **Version:** RC1 (Release Candidate 1)
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-AkiDB 2.0 is a RAM-first vector database optimized for ARM edge devices, targeting ≤100GB in-memory datasets with P95 search latency ≤25ms at 50 QPS. This document provides comprehensive performance benchmarks, scaling characteristics, and optimization guidance based on empirical testing across 147 test cases including 25 stress tests.
+AkiDB is a RAM-first vector database optimized for ARM edge devices, targeting ≤100GB in-memory datasets with P95 search latency ≤25ms at 50 QPS. This document provides comprehensive performance benchmarks, scaling characteristics, and optimization guidance based on empirical testing across 147 test cases including 25 stress tests.
 
 **Key Performance Achievements:**
 - Vector search P95: <5ms @ 10k vectors, <25ms @ 100k vectors (512-dim, HNSW)
@@ -398,7 +398,7 @@ for doc in documents {
 
 | Database | P95 Latency | Recall@10 | Memory Usage | Deployment Complexity |
 |----------|-------------|-----------|--------------|----------------------|
-| **AkiDB 2.0 (HNSW)** | **18ms** | **95%** | **260 MB** | **Single binary** |
+| **AkiDB (HNSW)** | **18ms** | **95%** | **260 MB** | **Single binary** |
 | Milvus (HNSW) | 25ms | 94% | 320 MB | Docker + etcd + MinIO |
 | Qdrant (HNSW) | 22ms | 96% | 290 MB | Docker + persistent volume |
 | Weaviate (HNSW) | 28ms | 93% | 380 MB | Docker + GraphQL overhead |
@@ -727,8 +727,8 @@ ms_print massif.out.<pid>
 
 | Database | Throughput (ops/sec) | Latency P95 (ms) | Notes |
 |----------|---------------------|------------------|-------|
-| **AkiDB 2.0 (Memory)** | **500-600** | **2.0** | Baseline |
-| **AkiDB 2.0 (MemoryS3)** | **300-400** | **3.2** | Async S3 backup |
+| **AkiDB (Memory)** | **500-600** | **2.0** | Baseline |
+| **AkiDB (MemoryS3)** | **300-400** | **3.2** | Async S3 backup |
 | Milvus | 200-300 | 5-8 | etcd overhead |
 | Qdrant | 400-500 | 3-5 | Comparable |
 | Weaviate | 150-250 | 8-12 | GraphQL overhead |
@@ -740,8 +740,8 @@ ms_print massif.out.<pid>
 
 | Database | Query P95 (ms) | Recall@10 | Notes |
 |----------|---------------|-----------|-------|
-| **AkiDB 2.0 (Memory)** | **2.1** | **>95%** | instant-distance |
-| **AkiDB 2.0 (S3Only, cache hit)** | **2.5** | **>95%** | LRU cache |
+| **AkiDB (Memory)** | **2.1** | **>95%** | instant-distance |
+| **AkiDB (S3Only, cache hit)** | **2.5** | **>95%** | LRU cache |
 | Milvus | 3-5 | >90% | Custom HNSW |
 | Qdrant | 2-4 | >95% | Similar to AkiDB |
 | Weaviate | 5-8 | >90% | GraphQL overhead |

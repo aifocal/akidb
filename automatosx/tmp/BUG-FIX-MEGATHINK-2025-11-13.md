@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Bug Fix Megathink Report
+# AkiDB - Bug Fix Megathink Report
 ## Date: November 13, 2025
 ## Branch: feature/candle-phase1-foundation
 

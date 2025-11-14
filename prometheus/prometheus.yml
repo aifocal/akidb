@@ -1,4 +1,4 @@
-# Prometheus Configuration for AkiDB 2.0
+# Prometheus Configuration for AkiDB
 # Scrapes metrics from AkiDB REST API /metrics endpoint
 # Compatible with Docker Compose deployment
 

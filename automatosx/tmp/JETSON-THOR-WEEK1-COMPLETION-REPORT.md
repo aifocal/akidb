@@ -499,4 +499,4 @@ fn get_config_for_platform() -> OnnxConfig {
 
 **Report Prepared By:** Claude Code (Sonnet 4.5)
 **Report Date:** 2025-11-11
-**Project:** AkiDB 2.0 - Jetson Thor ONNX Foundation
+**Project:** AkiDB - Jetson Thor ONNX Foundation

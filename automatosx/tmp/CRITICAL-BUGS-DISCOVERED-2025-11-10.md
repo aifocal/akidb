@@ -1,4 +1,4 @@
-# AkiDB 2.0 - Critical Bugs Discovered (2025-11-10)
+# AkiDB - Critical Bugs Discovered (2025-11-10)
 
 **Date:** 2025-11-10
 **Discovered By:** AutomatosX Backend Agent (2 analysis runs)

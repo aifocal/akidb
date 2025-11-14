@@ -1,6 +1,6 @@
 # Week 16 PRD: Security Hardening & Compliance
 
-**Project:** AkiDB 2.0 - Jetson Thor Optimization - Week 16
+**Project:** AkiDB - Jetson Thor Optimization - Week 16
 **Focus:** Security Hardening & Compliance (SOC 2, GDPR, HIPAA-ready)
 **Timeline:** 5 days (November 17-21, 2025)
 **Status:** Planning
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-After 15 weeks of optimization (cost reduction, performance improvements, observability), Week 16 shifts focus to **security hardening and compliance** to prepare AkiDB 2.0 for enterprise adoption in regulated industries (healthcare, finance, government).
+After 15 weeks of optimization (cost reduction, performance improvements, observability), Week 16 shifts focus to **security hardening and compliance** to prepare AkiDB for enterprise adoption in regulated industries (healthcare, finance, government).
 
 ### Strategic Context
 
@@ -1590,7 +1590,7 @@ aws s3api head-object --bucket akidb-audit-logs-immutable --key audit.log | jq '
 
 ## Conclusion
 
-Week 16 establishes **enterprise-grade security and compliance** for AkiDB 2.0, enabling adoption in regulated industries (healthcare, finance, government).
+Week 16 establishes **enterprise-grade security and compliance** for AkiDB, enabling adoption in regulated industries (healthcare, finance, government).
 
 **Key Achievements:**
 ✅ **End-to-end encryption:** Data at rest (S3, EBS, SQLite) + in transit (TLS 1.3, mTLS)
@@ -1607,6 +1607,6 @@ Week 16 establishes **enterprise-grade security and compliance** for AkiDB 2.0, 
 
 **Cost Impact:** +$380/month (12.1% infrastructure overhead, justified by enterprise sales enablement)
 
-**Overall Assessment:** Week 16 transforms AkiDB 2.0 from a **high-performance vector database** into an **enterprise-ready, compliance-certified platform** capable of securing sensitive data in regulated environments.
+**Overall Assessment:** Week 16 transforms AkiDB from a **high-performance vector database** into an **enterprise-ready, compliance-certified platform** capable of securing sensitive data in regulated environments.
 
 **Status:** ✅ Ready for Week 16 execution

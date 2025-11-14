@@ -8,7 +8,7 @@
 
 ## EXECUTIVE SUMMARY
 
-Week 18 marks the **successful completion** of the AkiDB 2.0 project - an 18-week journey from concept to production-ready, enterprise-grade vector database.
+Week 18 marks the **successful completion** of the AkiDB project - an 18-week journey from concept to production-ready, enterprise-grade vector database.
 
 ### Quantitative Achievement Summary
 

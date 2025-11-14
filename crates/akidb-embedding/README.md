@@ -1,6 +1,6 @@
 # akidb-embedding
 
-Embedding service infrastructure for AkiDB 2.0.
+Embedding service infrastructure for AkiDB.
 
 This crate provides trait definitions and implementations for text embedding generation. The architecture supports multiple backends through the `EmbeddingProvider` trait.
 

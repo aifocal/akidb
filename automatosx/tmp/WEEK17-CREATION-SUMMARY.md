@@ -59,7 +59,7 @@ Enterprise contracts require:
 4. **Regional failover** (survive AWS outages)
 5. **Annual DR drills** (tested resilience)
 
-**Week 17 Goal:** Transform AkiDB 2.0 into a **disaster-resilient, mission-critical platform** with 99.99% uptime.
+**Week 17 Goal:** Transform AkiDB into a **disaster-resilient, mission-critical platform** with 99.99% uptime.
 
 ---
 
@@ -405,7 +405,7 @@ spec:
 
 ## Conclusion
 
-Week 17 PRD establishes **enterprise-grade disaster recovery** for AkiDB 2.0:
+Week 17 PRD establishes **enterprise-grade disaster recovery** for AkiDB:
 
 ✅ **99.99% uptime SLA** (52.6 min downtime/year) - 10x better than 99.9%
 ✅ **RTO <30 minutes** (automated regional failover)
@@ -423,6 +423,6 @@ Week 17 PRD establishes **enterprise-grade disaster recovery** for AkiDB 2.0:
 
 **Cost Impact:** +$1,416/month (40.2% increase, justified by premium SLAs)
 
-**Overall Assessment:** Week 17 transforms AkiDB 2.0 into a **mission-critical, disaster-resilient platform** capable of meeting the most demanding enterprise availability requirements.
+**Overall Assessment:** Week 17 transforms AkiDB into a **mission-critical, disaster-resilient platform** capable of meeting the most demanding enterprise availability requirements.
 
 **Status:** Ready for Week 17 execution.

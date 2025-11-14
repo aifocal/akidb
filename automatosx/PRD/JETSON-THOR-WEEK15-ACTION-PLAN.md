@@ -1,6 +1,6 @@
 # Week 15 Action Plan: Advanced Observability & Monitoring
 
-**Project:** AkiDB 2.0 - Jetson Thor Optimization - Week 15
+**Project:** AkiDB - Jetson Thor Optimization - Week 15
 **Focus:** Advanced Observability & Monitoring
 **Duration:** 5 days (November 12-16, 2025)
 **Status:** Ready for Execution

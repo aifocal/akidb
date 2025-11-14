@@ -1,6 +1,6 @@
 # Week 17 PRD: Disaster Recovery & Business Continuity
 
-**Project:** AkiDB 2.0 - Jetson Thor Optimization - Week 17
+**Project:** AkiDB - Jetson Thor Optimization - Week 17
 **Focus:** Disaster Recovery, Backup/Restore, Multi-Region Failover, Business Continuity
 **Timeline:** 5 days (November 24-28, 2025)
 **Status:** Planning
@@ -1074,7 +1074,7 @@ chmod +x test-data-corruption-recovery.sh
 
 ## Conclusion
 
-Week 17 establishes **enterprise-grade disaster recovery and business continuity** for AkiDB 2.0, enabling:
+Week 17 establishes **enterprise-grade disaster recovery and business continuity** for AkiDB, enabling:
 
 ✅ **99.99% uptime SLA** (52.6 min downtime/year) via multi-region active-active
 ✅ **RTO <30 minutes** (automated regional failover)
@@ -1090,6 +1090,6 @@ Week 17 establishes **enterprise-grade disaster recovery and business continuity
 
 **Cost Impact:** +$1,416/month (40.2% increase, justified by $100k+ enterprise SLAs)
 
-**Overall Assessment:** Week 17 transforms AkiDB 2.0 into a **mission-critical, disaster-resilient platform** capable of meeting the most demanding enterprise availability requirements.
+**Overall Assessment:** Week 17 transforms AkiDB into a **mission-critical, disaster-resilient platform** capable of meeting the most demanding enterprise availability requirements.
 
 **Status:** ✅ Ready for Week 17 execution

@@ -1,6 +1,6 @@
-# AkiDB 2.0 Load Testing Guide
+# AkiDB Load Testing Guide
 
-This guide covers how to run load tests for AkiDB 2.0, interpret results, and integrate with CI/CD pipelines.
+This guide covers how to run load tests for AkiDB, interpret results, and integrate with CI/CD pipelines.
 
 ---
 

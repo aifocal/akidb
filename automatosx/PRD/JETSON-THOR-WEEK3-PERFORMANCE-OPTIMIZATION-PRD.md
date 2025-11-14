@@ -1394,7 +1394,7 @@ Week 3 focused on performance optimization to achieve production-grade latency a
 
 **Report Prepared By:** [YOUR_NAME]
 **Report Date:** $(date +%Y-%m-%d)
-**Project:** AkiDB 2.0 - Jetson Thor Performance Optimization
+**Project:** AkiDB - Jetson Thor Performance Optimization
 EOF
 ```
 
