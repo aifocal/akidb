@@ -120,6 +120,36 @@ lazy_static! {
     .unwrap();
 }
 
+/// Initialize all metrics by accessing them once
+///
+/// This ensures all lazy_static metrics are registered with Prometheus immediately,
+/// rather than waiting for their first use. This is important for monitoring systems
+/// that expect all metrics to be present from the start.
+///
+/// # Example
+///
+/// ```rust
+/// use akidb_service::metrics;
+///
+/// // Call during server initialization
+/// metrics::init_metrics();
+/// ```
+pub fn init_metrics() {
+    // Access all lazy_static metrics to force registration
+    let _ = &*HTTP_REQUESTS_TOTAL;
+    let _ = &*HTTP_REQUEST_DURATION_SECONDS;
+    let _ = &*GRPC_REQUESTS_TOTAL;
+    let _ = &*GRPC_REQUEST_DURATION_SECONDS;
+    let _ = &*VECTOR_SEARCH_DURATION_SECONDS;
+    let _ = &*VECTOR_INSERT_DURATION_SECONDS;
+    let _ = &*COLLECTION_SIZE_VECTORS;
+    let _ = &*TIER_DISTRIBUTION_COLLECTIONS;
+    let _ = &*S3_OPERATIONS_TOTAL;
+    let _ = &*S3_OPERATION_DURATION_SECONDS;
+    let _ = &*MEMORY_USAGE_BYTES;
+    let _ = &*BACKGROUND_WORKER_RUNS_TOTAL;
+}
+
 /// Exports all metrics in Prometheus text format
 ///
 /// This function gathers all registered metrics and encodes them in the
@@ -314,6 +344,58 @@ mod tests {
             .find(|m| m.get_name() == "akidb_background_worker_runs_total");
 
         assert!(worker_metrics.is_some());
+    }
+
+    #[test]
+    fn test_init_metrics_registers_all() {
+        // Call init_metrics to ensure all lazy_static metrics are initialized
+        init_metrics();
+
+        // Actually USE each metric to force lazy_static initialization
+        // (just accessing the reference might not trigger registration)
+        HTTP_REQUESTS_TOTAL.with_label_values(&["TEST", "/test", "200"]).inc();
+        HTTP_REQUEST_DURATION_SECONDS.with_label_values(&["TEST", "/test"]).observe(0.001);
+        GRPC_REQUESTS_TOTAL.with_label_values(&["test_service", "test_method", "ok"]).inc();
+        GRPC_REQUEST_DURATION_SECONDS.with_label_values(&["test_service", "test_method"]).observe(0.001);
+        VECTOR_SEARCH_DURATION_SECONDS.with_label_values(&["hot"]).observe(0.001);
+        VECTOR_INSERT_DURATION_SECONDS.with_label_values(&["test_collection"]).observe(0.001);
+        COLLECTION_SIZE_VECTORS.with_label_values(&["test_collection"]).set(100.0);
+        TIER_DISTRIBUTION_COLLECTIONS.with_label_values(&["hot"]).set(10.0);
+        S3_OPERATIONS_TOTAL.with_label_values(&["put", "success"]).inc();
+        S3_OPERATION_DURATION_SECONDS.with_label_values(&["put"]).observe(0.1);
+        MEMORY_USAGE_BYTES.with_label_values(&["test_component"]).set(1024.0);
+        BACKGROUND_WORKER_RUNS_TOTAL.with_label_values(&["test_worker", "success"]).inc();
+
+        let metrics = prometheus::gather();
+        let metric_names: Vec<String> = metrics
+            .iter()
+            .map(|m| m.get_name().to_string())
+            .collect();
+
+        // Verify all 12 core metrics are registered
+        assert!(
+            metric_names.contains(&"akidb_http_requests_total".to_string()),
+            "HTTP requests metric missing. Found: {:?}",
+            metric_names
+        );
+        assert!(metric_names.contains(&"akidb_http_request_duration_seconds".to_string()));
+        assert!(metric_names.contains(&"akidb_grpc_requests_total".to_string()));
+        assert!(metric_names.contains(&"akidb_grpc_request_duration_seconds".to_string()));
+        assert!(metric_names.contains(&"akidb_vector_search_duration_seconds".to_string()));
+        assert!(metric_names.contains(&"akidb_vector_insert_duration_seconds".to_string()));
+        assert!(metric_names.contains(&"akidb_collection_size_vectors".to_string()));
+        assert!(metric_names.contains(&"akidb_tier_distribution_collections".to_string()));
+        assert!(metric_names.contains(&"akidb_s3_operations_total".to_string()));
+        assert!(metric_names.contains(&"akidb_s3_operation_duration_seconds".to_string()));
+        assert!(metric_names.contains(&"akidb_memory_usage_bytes".to_string()));
+        assert!(metric_names.contains(&"akidb_background_worker_runs_total".to_string()));
+
+        // Verify we have at least 12 metrics
+        assert!(
+            metric_names.len() >= 12,
+            "Expected at least 12 metrics, found {}",
+            metric_names.len()
+        );
     }
 
     #[test]

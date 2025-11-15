@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-cli"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "akidb-metadata",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-core"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-embedding"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-grpc"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "akidb-metadata",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-index"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "async-trait",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-metadata"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "argon2",
@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-proto"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "prost",
  "serde",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-rest"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "akidb-metadata",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "akidb-service"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "akidb-core",
  "akidb-embedding",

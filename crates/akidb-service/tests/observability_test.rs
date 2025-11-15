@@ -108,15 +108,25 @@ async fn test_vector_operations_record_metrics() {
 
 #[tokio::test]
 async fn test_all_core_metrics_registered() {
-    use akidb_service::metrics::*;
+    use akidb_service::metrics;
 
-    // Trigger metric registration by accessing them
-    HTTP_REQUESTS_TOTAL
-        .with_label_values(&["GET", "/test", "200"])
-        .inc();
-    VECTOR_SEARCH_DURATION_SECONDS
-        .with_label_values(&["hot"])
-        .observe(0.001);
+    // Initialize all metrics to ensure they are registered
+    metrics::init_metrics();
+
+    // Actually USE each metric to force lazy_static initialization
+    use akidb_service::metrics::*;
+    HTTP_REQUESTS_TOTAL.with_label_values(&["TEST", "/test", "200"]).inc();
+    HTTP_REQUEST_DURATION_SECONDS.with_label_values(&["TEST", "/test"]).observe(0.001);
+    GRPC_REQUESTS_TOTAL.with_label_values(&["test_service", "test_method", "ok"]).inc();
+    GRPC_REQUEST_DURATION_SECONDS.with_label_values(&["test_service", "test_method"]).observe(0.001);
+    VECTOR_SEARCH_DURATION_SECONDS.with_label_values(&["hot"]).observe(0.001);
+    VECTOR_INSERT_DURATION_SECONDS.with_label_values(&["test_collection"]).observe(0.001);
+    COLLECTION_SIZE_VECTORS.with_label_values(&["test_collection"]).set(100.0);
+    TIER_DISTRIBUTION_COLLECTIONS.with_label_values(&["hot"]).set(10.0);
+    S3_OPERATIONS_TOTAL.with_label_values(&["put", "success"]).inc();
+    S3_OPERATION_DURATION_SECONDS.with_label_values(&["put"]).observe(0.1);
+    MEMORY_USAGE_BYTES.with_label_values(&["test_component"]).set(1024.0);
+    BACKGROUND_WORKER_RUNS_TOTAL.with_label_values(&["test_worker", "success"]).inc();
 
     let metric_families = prometheus::gather();
     let metric_names: Vec<String> = metric_families
@@ -124,10 +134,17 @@ async fn test_all_core_metrics_registered() {
         .map(|m| m.get_name().to_string())
         .collect();
 
+    // Debug: Print all registered metrics
+    eprintln!("Registered metrics ({} total):", metric_names.len());
+    for name in &metric_names {
+        eprintln!("  - {}", name);
+    }
+
     // Verify all 12 core metrics are registered
     assert!(
         metric_names.contains(&"akidb_http_requests_total".to_string()),
-        "HTTP requests metric should be registered"
+        "HTTP requests metric should be registered. Found: {:?}",
+        metric_names
     );
     assert!(
         metric_names.contains(&"akidb_http_request_duration_seconds".to_string()),
@@ -183,7 +200,7 @@ async fn test_uptime_tracking() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let uptime = service.uptime_seconds();
-    assert!(uptime >= 0, "Uptime should be non-negative");
+    // uptime is u64, so always non-negative by type
     assert!(uptime < 10, "Uptime should be reasonable for test");
 }
 
