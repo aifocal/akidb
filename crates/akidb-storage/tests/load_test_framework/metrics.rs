@@ -41,6 +41,7 @@ pub struct MemorySample {
 
 #[derive(Debug, Clone)]
 pub struct CpuSample {
+    #[allow(dead_code)] // Reserved for time-series analysis
     pub timestamp: Instant,
     pub utilization: f64, // 0.0-1.0
 }

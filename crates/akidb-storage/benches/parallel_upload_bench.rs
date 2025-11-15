@@ -7,7 +7,7 @@ use akidb_core::vector::VectorDocument;
 use akidb_storage::batch_config::S3BatchConfig;
 use akidb_storage::object_store::{LocalObjectStore, ObjectStore};
 use akidb_storage::parallel_uploader::{ParallelConfig, ParallelUploader};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::path::PathBuf;
 use std::sync::Arc;
 

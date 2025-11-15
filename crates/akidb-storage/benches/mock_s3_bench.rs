@@ -4,7 +4,7 @@
 
 use akidb_storage::object_store::{LocalObjectStore, MockS3Config, MockS3ObjectStore, ObjectStore};
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

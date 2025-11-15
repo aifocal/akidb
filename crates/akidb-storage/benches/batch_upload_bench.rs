@@ -7,7 +7,7 @@ use akidb_core::vector::VectorDocument;
 use akidb_storage::batch_config::S3BatchConfig;
 use akidb_storage::batch_uploader::BatchUploader;
 use akidb_storage::object_store::{LocalObjectStore, ObjectStore};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -56,7 +56,7 @@ fn bench_batch_vs_sequential(c: &mut Criterion) {
                     let uploader = BatchUploader::new(store, config).unwrap();
                     let collection_id = CollectionId::new();
 
-                    for i in 0..count {
+                    for _i in 0..count {
                         let doc = VectorDocument::new(DocumentId::new(), vec![0.1; 128]);
                         uploader
                             .add_document(collection_id, 128, doc)

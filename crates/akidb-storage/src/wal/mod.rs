@@ -77,39 +77,55 @@ impl From<LogSequenceNumber> for u64 {
 pub enum LogEntry {
     /// Insert or update a vector document
     Upsert {
+        /// ID of the collection
         collection_id: CollectionId,
+        /// Document ID
         doc_id: DocumentId,
+        /// Dense vector embedding
         vector: Vec<f32>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        /// Optional user-provided external ID
         external_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        /// Optional JSON metadata
         metadata: Option<serde_json::Value>,
+        /// Operation timestamp
         timestamp: DateTime<Utc>,
     },
 
     /// Delete a vector document
     Delete {
+        /// ID of the collection
         collection_id: CollectionId,
+        /// Document ID to delete
         doc_id: DocumentId,
+        /// Deletion timestamp
         timestamp: DateTime<Utc>,
     },
 
     /// Create a new collection
     CreateCollection {
+        /// ID of the new collection
         collection_id: CollectionId,
+        /// Vector dimension
         dimension: u32,
+        /// Creation timestamp
         timestamp: DateTime<Utc>,
     },
 
     /// Delete a collection (soft delete, vectors may remain in S3)
     DeleteCollection {
+        /// ID of the collection to delete
         collection_id: CollectionId,
+        /// Deletion timestamp
         timestamp: DateTime<Utc>,
     },
 
     /// Checkpoint marker - all entries before this LSN are safe to discard
     Checkpoint {
+        /// Log sequence number of checkpoint
         lsn: LogSequenceNumber,
+        /// Checkpoint timestamp
         timestamp: DateTime<Utc>,
     },
 }

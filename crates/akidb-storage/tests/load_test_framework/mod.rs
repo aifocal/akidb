@@ -54,6 +54,7 @@ impl Default for SuccessCriteria {
 
 impl SuccessCriteria {
     /// Production-ready criteria (strict)
+    #[allow(dead_code)] // Reserved for future production load testing
     pub fn production() -> Self {
         Self {
             max_p95_latency_ms: 25.0,

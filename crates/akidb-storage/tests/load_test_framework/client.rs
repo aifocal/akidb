@@ -15,6 +15,7 @@ pub enum OperationType {
 
 /// Load test client for executing operations
 pub struct LoadTestClient {
+    #[allow(dead_code)] // Reserved for multi-collection load testing
     collection_id: CollectionId,
     dimension: usize,
 }

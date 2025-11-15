@@ -7,8 +7,11 @@ use tokio::sync::RwLock;
 /// Access statistics for a collection
 #[derive(Debug, Clone)]
 pub struct AccessStats {
+    /// Timestamp of most recent access
     pub last_accessed_at: DateTime<Utc>,
+    /// Number of accesses in current time window
     pub access_count: u32,
+    /// Start time of current measurement window
     pub window_start: DateTime<Utc>,
 }
 

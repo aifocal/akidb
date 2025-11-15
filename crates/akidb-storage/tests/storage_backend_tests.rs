@@ -288,6 +288,7 @@ use parking_lot::RwLock as SyncRwLock;
 use std::sync::Arc as StdArc;
 
 /// Mock S3 implementation for testing failure scenarios
+#[allow(dead_code)] // Test helper for future failure scenario tests
 struct MockS3ObjectStore {
     storage: StdArc<SyncRwLock<HashMap<String, Vec<u8>>>>,
     failure_pattern: StdArc<SyncRwLock<VecDeque<Result<(), String>>>>,
@@ -295,6 +296,7 @@ struct MockS3ObjectStore {
 
 impl MockS3ObjectStore {
     /// Create mock with predefined failure pattern
+    #[allow(dead_code)] // Test helper for future failure scenario tests
     fn new_with_failure_pattern(pattern: Vec<Result<(), &'static str>>) -> Self {
         Self {
             storage: StdArc::new(SyncRwLock::new(HashMap::new())),
@@ -308,6 +310,7 @@ impl MockS3ObjectStore {
     }
 
     /// Create mock that always fails with given error
+    #[allow(dead_code)] // Test helper for future failure scenario tests
     fn new_with_error(error: &'static str) -> Self {
         Self::new_with_failure_pattern(vec![Err(error)])
     }
